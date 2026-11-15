@@ -1,5 +1,6 @@
 // Stand ins the SDK's headless harness does not have yet (the runtime grew past it):
 // the audio output's stop and the system language.
+#include <cstdlib>
 #include <string>
 
 #include "app/app.h"
@@ -10,5 +11,8 @@ void StopOutput() {}
 }  // namespace audio
 
 namespace app {
-std::string SystemLanguage() { return "en"; }
+std::string SystemLanguage() {
+    const char* e = std::getenv("XBE_SYSTEM_LANGUAGE");
+    return e && *e ? e : "en";
+}
 }  // namespace app

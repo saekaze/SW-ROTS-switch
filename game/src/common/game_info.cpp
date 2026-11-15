@@ -40,4 +40,5 @@ const app::GameInfo app::kGame = {
     .ui = nullptr,                        // ImGui drawing each frame
     .pad = sheroes::ScriptPad,          // scripted test presses (pad_script.cpp), none unless asked for
     .rumble = nullptr,                    // changes a rumble before it is set
+    .languages = "en,es,it",              // the PAL disc (Europe, En/Es/It)
 };

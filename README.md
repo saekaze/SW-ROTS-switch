@@ -21,8 +21,8 @@ Switch at 60 fps on stock clocks.
 | Mission 1 (Rescue over Coruscant) | Loads and plays |
 | Level changes (the game reboots itself between front end and missions) | Works, done in-process (no restart of the app) |
 | Sound (DirectSound at the API level) | Works |
-| Movies (CRI Sofdec FMV: intro, crawl, cutscenes) | **Black for now** (sound plays; skip them with Start) |
-| Switch build | Builds (deko3d), from your own game with one command. Not yet confirmed on real hardware: please report! |
+| Movies (CRI Sofdec FMV: intro, crawl, cutscenes) | Work |
+| Switch build | Runs on the console (deko3d): about 29 fps in the intro movies at stock clocks |
 | Missions past the first | Untested |
 
 Tested so far on PC (Linux, headless): title, Start, the self-reboot, crawl, intro, mission 1 gameplay, pause,
@@ -122,7 +122,7 @@ On top of the toolchain it is built on:
 
 ## To do
 
-- Movies (CRI Sofdec through the YUV overlay)
+- Check every mission on the console
 - Play through the other missions
 - Measure on the console, then profile for stock clocks
 

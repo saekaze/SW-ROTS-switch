@@ -141,6 +141,8 @@ struct VertexShader {
     std::array<Input, 16> inputs{};
     std::array<uint32_t, 16> stream_stride{};  // bytes consumed per stream by the declaration
     std::vector<std::pair<uint32_t, std::array<float, 4>>> constants;  // D3DVSD_CONST tokens
+    // ROTS: made for Begin/End vertices under an XYZRHW FVF: screen space, as the FVF draws (the movies)
+    bool pretransformed = false;
 };
 
 struct PixelShader {

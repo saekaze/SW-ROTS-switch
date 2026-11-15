@@ -242,7 +242,8 @@ const VertexShader* PickLayout(const State& s, VertexShader& fvf_layout) {
 
 // D3DFVF: an FVF handle with position XYZRHW
 bool Pretransformed(const State& s) {
-    return !(s.vs_handle & 1) && (s.vs_handle & 0xE) == 0x4;
+    if (s.vs_handle & 1) return s.vs && s.vs->pretransformed && s.vs->program.empty();
+    return (s.vs_handle & 0xE) == 0x4;
 }
 
 IndexBounds IndexRange(const uint8_t* ip, uint32_t count) {

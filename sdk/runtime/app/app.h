@@ -94,6 +94,9 @@ struct GameInfo {
     void (*ui)(double fps);        // each frame inside the ImGui frame, UiLock held
     void (*pad)(int port, input::Pad& pad);  // a polled pad before the game gets it
     void (*rumble)(int port, uint16_t& left, uint16_t& right);
+    // ROTS: the languages the disc has ("en,es,it"); with language "auto" any other system language plays in
+    // English (a PAL Revenge of the Sith on a Japanese Switch looped on its legal screen). Null: all of them
+    const char* languages = nullptr;
 };
 extern const GameInfo kGame;
 

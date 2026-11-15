@@ -1260,7 +1260,14 @@ static uint32_t VideoFlags() {
 static uint32_t XboxLanguage() {
     static const uint32_t value = [] {
         std::string code = app::Get().language;
-        if (code.empty() || code == "auto") code = app::SystemLanguage();
+        if (code.empty() || code == "auto") {
+            code = app::SystemLanguage();
+            if (app::kGame.languages && !std::strstr(app::kGame.languages, code.c_str())) {
+                LOGR("language: the system's %s is not on this disc (%s), English instead", code.c_str(),
+                     app::kGame.languages);
+                code = "en";
+            }
+        }
         static constexpr std::pair<const char*, uint32_t> kCodes[] = {{"en", 1}, {"ja", 2}, {"de", 3}, {"fr", 4}, {"es", 5},
                                                                       {"it", 6}, {"ko", 7}, {"zh", 8}, {"pt", 9}};
         uint32_t v = 1;

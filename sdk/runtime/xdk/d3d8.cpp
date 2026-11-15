@@ -1466,12 +1466,14 @@ void EndPrimitive() {
         return;
     }
     if (!prim || !count) return;
-    if (!(handle & 1) && (handle & 0xE) == 4) LOG_FIRST(1, "d3d: pretransformed immediate mode vertices are not supported");
+    // ROTS: an XYZRHW FVF keeps its vertices in screen space (Sofdec draws every movie frame this way)
+    const bool rhw = !(handle & 1) && (handle & 0xE) == 4;
     auto bound = g_state.vs, from = handle & 1 ? bound : nullptr;
-    Made& m = made[{from.get(), g_im_mask}];
+    Made& m = made[{from.get(), g_im_mask | (rhw ? 0x80000000u : 0)}];
     if (!m.vs) {
         m.from = from;
         m.vs = std::make_shared<gpu::VertexShader>();
+        m.vs->pretransformed = rhw;
         if (from) {
             m.vs->program = from->program;
             m.vs->program_type = from->program_type;
