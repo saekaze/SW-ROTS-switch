@@ -1,0 +1,48 @@
+# Nothing from the game, nothing built
+default.xbe
+*.xbe
+*.iso
+/game/assets/
+/game/generated/
+nvk_sdk/
+switch_sd/
+/build*/
+out/
+*.nro
+*.nacp
+*.elf
+*.nso
+*.exe
+*.dll
+*.pdb
+*.o
+*.a
+*.rlib
+*.log
+logs/
+screenshots/
+shadercache/
+!installer/release/shadercache/
+hdd/
+
+# the NRO icon carries the game's name (a trademark of its owners): kept local
+switch/icon.jpg
+
+# private working diary (local paths, test sessions)
+CLAUDE.local.md
+
+# sheroes-nx: the disc and anything made from it (never committed)
+/assets/
+/out/
+*_analysis.json
+/nvk_sdk
+
+# rots-nx: fetched by tools/fetch_third_party.sh, and local build output
+/third_party/
+/build-tools/out/
+/build-tools/*.log
+/build-tools/*.start
+/build-tools/*.end
+/build-harness/
+/build-switch*/
+/ref/

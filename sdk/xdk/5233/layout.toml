@@ -1,0 +1,53 @@
+# XDK 5233 library data layouts the runtime reads or writes. Each value is proven by the default.xbe
+# (Bloody Roar Extreme, title 48550001) code at the address given. The functions are named in its game.toml;
+# "FIFA Street's (5849) 0x..." is the same instruction in that title's code (street-nx), for comparison.
+[layout]
+# D3D8 CDevice, the static device D3D__pDevice (0xFA7E8) points at (0xFA7F0)
+CDevice_Push          = 0x0     # D3DDevice_SetPalette 0xEB583 reads it, compares with +4, calls MakeSpace 0xEFE80
+CDevice_PushThreshold = 0x4     # D3DDevice_SetPalette 0xEB57E reads it for the compare
+CDevice_BaseVertex    = 0x1C    # D3DDevice_SetIndices 0xEB609 stores BaseVertexIndex
+CDevice_IndexBuffer   = 0x388   # D3DDevice_SetIndices 0xEB5DA reads the old one, 0xEB602 stores the new one
+CDevice_ZScale        = 0x50C   # the viewport scale 0xEC6F6 (FIFA Street's (5849) 0x254FF0 at 0x255056) and 0xED396 scale Z by it
+CDevice_SuperSampleX  = 0x518   # 0xED20E (FIFA Street's (5849) 0x2500E0 at 0x2500FE) scales X by it
+CDevice_SuperSampleY  = 0x51C   # 0xED230 (FIFA Street's (5849) 0x250120) scales Y by it
+CDevice_Transforms    = 0x810   # D3DDevice_SetTransform 0xEAED6 copies 16 dwords to +0x810 + type * 64
+CDevice_Textures      = 0xB38   # D3DDevice_SetTexture 0xEB380 reads, 0xEB3B9 stores [stage]
+CDevice_Palettes      = 0xB48   # D3DDevice_SetPalette 0xEB52D reads, 0xEB565 stores [stage]
+CDevice_RenderTarget  = 0x15B4  # D3DDevice_GetRenderTarget2 0xEB1D6 returns it
+CDevice_Depth         = 0x15B8  # D3DDevice_GetDepthStencilSurface2 0xEB1F6 returns it
+CDevice_BackBuffer    = 0x15C0  # D3DDevice_GetBackBuffer2 0xEB1B0 returns it for index 0
+CDevice_FrontBuffer   = 0x15C4  # D3DDevice_GetBackBuffer2 0xEB195 returns it for index -1 (+0x15C0 + 1 * 4)
+CDevice_SwapCount     = 0x2018  # D3DDevice_Swap 0xEF530 increments it, 0xEF5A1 reads it
+CDevice_Size          = 0x2040  # Direct3D_CreateDevice 0xF040B clears 0x810 dwords of the device on failure
+CDevice_Flags             = 0x8    # Direct3D_CreateDevice 0xF03CF ors the behavior flags into 0xFA7F8, D3DDevice_SetPixelShader 0xF58E1 tests 0x10
+CDevice_Time              = 0x2C   # D3D_KickOffAndWaitForIdle 0xEFEE5 passes it to D3D_BlockOnTime, D3D_SetFence 0xEFBA0 stores the next one
+CDevice_PixelShader       = 0x36C  # D3DDevice_SetPixelShader 0xF5818 stores the handle, SetTextureState_BumpEnv 0xEDADE reads it
+CDevice_VertexShader      = 0x37C  # D3DDevice_SetVertexShader 0xEC791 reads the current one, 0xEC7E8 stores the new one
+CDevice_BackBufferScale   = 0x528  # the frame buffer init 0xF1ABA stores the X scale as a float, 0xF1AD3 the Y scale at +4
+CDevice_Viewport          = 0xA90  # D3DDevice_SetViewport 0xEB30B to 0xEB32F stores X, Y, Width, Height, MinZ, MaxZ
+CDevice_ScreenSpaceOffset = 0xAA8  # D3DDevice_SetScreenSpaceOffset 0xEB8E3 stores x + 0.53125, 0xEB8F3 y + 0.53125 at +4
+CDevice_AutoDepth         = 0x15CC # the frame buffer init 0xF1B79 stores the depth buffer, D3D_InitDefaultState 0xF1850 reads it
+# the miniport is at +0x17C8 (CDevice_KickOff 0xEF9E0) and keeps 5849's layout: each field below is miniport + 5849's offset
+CDevice_VBlankCallback    = 0x1958 # D3DDevice_SetVerticalBlankCallback 0xEB02A stores it (miniport + 0x190)
+CDevice_VBlankEvent       = 0x195C # D3DDevice_BlockUntilVerticalBlank 0xEB05D waits on it, 0xEB04B clears its SignalState
+CDevice_DisplayFlags      = 0x197C # the vertical blank handler 0xEEBCB tests 0x1000000 in it (FIFA Street's (5849) 0x25D23B, miniport + 0x1B4)
+CDevice_VBlankCount       = 0x1988 # the vertical blank handler 0xEEC47 reads it, 0xEEC5B stores it + 1 (miniport + 0x1C0)
+# CDevice_Field, CDevice_GammaRamps and CDevice_GammaPending (miniport + 0x1D0, + 0x1DC, + 0x7DC in 5849) are left out:
+# this image has no D3DDevice_SetGammaRamp or field status query and no code that proves them
+# D3D8 globals
+DirtyFlags_Texture    = 0x4800  # D3DDevice_SetTexture 0xEB3F7 ors it into D3D__DirtyFlags
+TextureState_Stage    = 32      # D3DDevice_SetTextureStageStateNotInline 0xEDBDB: [stage * 32 + type] dwords
+Stream_Size           = 12      # D3DDevice_SetStreamSource 0xEC3DA/0xEC3DD index the stream table by n * 3 * 4
+Stream_Stride         = 0x0     # D3DDevice_SetStreamSource 0xEC422 stores Stride
+Stream_Buffer         = 0x8     # D3DDevice_SetStreamSource 0xEC428 stores the vertex buffer (0xF9440 = D3D_Streams + 8)
+PixelShader_Definition = 0x8  # D3DDevice_SetPixelShader 0xF5880 reads the definition pointer
+# DSOUND
+CDirectSoundStream_Vtable  = 0x0  # CDirectSoundStream constructor 0xFDF8A stores the first vtable
+CDirectSoundStream_Vtable2 = 0x4  # CDirectSoundStream constructor 0xFDF83 stores the second vtable
+EffectsImage_Skip0    = 0x804   # 0xFEC3B (FIFA Street's 0x26830B, on the path from DownloadEffectsImage) adds this dword count
+EffectsImage_Skip1    = 0x80C   # 0xFEC35 loads this dword count
+EffectsImage_Desc     = 0x818   # 0xFEC44: descriptor at image + 0x818 + (Skip0 + Skip1) * 4
+# XAPI XPP device type record
+XPP_Current           = 0x0     # XGetDevices 0x13A420 returns it
+XPP_Changed           = 0x4     # XGetDevices 0x13A422 clears it
+XPP_Previous          = 0x8     # XGetDevices 0x13A428 copies Current into it
