@@ -21,9 +21,10 @@ smaa = false
 # If you see broken shapes or flickering with deko3d, try false.
 deko3d_cached_upload = true
 
-# deko3d only: a texture the game may have changed is checked in full once every this many frames (8 by default;
+# deko3d only: a texture the game may have changed is checked in full once every this many frames (ROTS: 1, the movies
+# are rewritten every frame and flickered with 8;
 # 1 = every frame). If a texture is slow to update (scoreboard, signs), try 1.
-texture_check_frames = 8
+texture_check_frames = 1
 
 # true (default): only the render states the game changed since the last draw are sent to the renderer
 # (less CPU work). If colors, transparency or positions look wrong, try false.
