@@ -22,7 +22,7 @@ Switch at 60 fps on stock clocks.
 | Level changes (the game reboots itself between front end and missions) | Works, done in-process (no restart of the app) |
 | Sound (DirectSound at the API level) | Works |
 | Movies (CRI Sofdec FMV: intro, crawl, cutscenes) | **Black for now** (sound plays; skip them with Start) |
-| Switch build | Builds (deko3d). Not yet confirmed on real hardware: please report! |
+| Switch build | Builds (deko3d), from your own game with one command. Not yet confirmed on real hardware: please report! |
 | Missions past the first | Untested |
 
 Tested so far on PC (Linux, headless): title, Start, the self-reboot, crawl, intro, mission 1 gameplay, pause,
@@ -30,17 +30,37 @@ quit mission back to the main menu, and starting a mission again (three reboots 
 
 ## Install
 
-You need a Switch with custom firmware (Atmosphere) and your own copy of the game.
+There is no download of the game program here: like the NFS Underground ports, **you build it from your own copy of
+the game**. The program is made of the game's own code, translated, so it is only ever made on your computer, from
+your disc. It is one command.
 
-1. Copy `switch/rots/` to the root of your SD card (`sdmc:/switch/rots/rots.nro` and `rots-settings.toml`).
-2. Extract your disc image with [extract-xiso](https://github.com/XboxDev/extract-xiso):
+You need a Switch with custom firmware (Atmosphere), your own copy of the game, and a Linux PC or Windows with WSL2.
+
+1. Extract your disc image with [extract-xiso](https://github.com/XboxDev/extract-xiso):
    `extract-xiso -x "Star Wars Episode III.iso"`
-3. Copy everything it extracted (`default.xbe`, `audio`, `cinematics`, `movies`, `pak`, ... about 2.4 GB) into
-   `sdmc:/switch/rots/game/`.
-4. Hold **R** while opening any installed game to get the homebrew menu with full memory (title takeover), then start
+2. Install the tools (Ubuntu / WSL2):
+   ```sh
+   sudo apt install clang cmake ninja-build python3-pil git
+   ```
+   and [devkitPro](https://devkitpro.org/wiki/Getting_Started), then
+   `sudo dkp-pacman -S switch-dev deko3d switch-zstd switch-expat switch-zlib`
+3. Build:
+   ```sh
+   git clone https://github.com/saekaze/SW-ROTS-switch
+   cd SW-ROTS-switch
+   ./build_from_xbe.sh /path/to/extracted/disc --copy-game
+   ```
+   The first build takes 10 to 20 minutes.
+4. Copy `out/switch_sd/switch` to the root of your SD card. You get `sdmc:/switch/rots/rots.nro`,
+   `rots-settings.toml` and, with `--copy-game`, the game files in `sdmc:/switch/rots/game/` (about 2.4 GB).
+5. Hold **R** while opening any installed game to get the homebrew menu with full memory (title takeover), then start
    **Star Wars Episode III (Xbox recomp)**. The album applet does not have enough memory.
 
-The PAL release (Europe, title ID 4C410017) is the one it was made with.
+The PAL release (Europe, title ID 4C410017) is the one it was made with; others with the same title ID are tried.
+
+**The icon** is made from your own `default.xbe` too (the dashboard picture the game carries: Obi-Wan and Anakin
+dueling), so the build needs no artwork from anywhere. Want another picture? Put any 256x256 JPEG at
+`switch/icon.jpg` before building and it is used instead.
 
 ### Settings
 
@@ -57,9 +77,9 @@ The game itself caps at 30 fps (`fpsLimit=30` in the game's `vars_xbox.cfg`). Fo
 Open an issue with: where in the game it happened, what you saw, your Atmosphere version, and the logs from
 `sdmc:/switch/rots/logs/`.
 
-## Building
+## Building by hand (developers)
 
-The game's code is generated from your own `default.xbe`; nothing builds without the game.
+`build_from_xbe.sh` runs these steps. The game's code is generated from your own `default.xbe`; nothing builds without the game.
 
 Linux (or WSL2), with clang, cmake, ninja and devkitPro (`switch-dev`, `deko3d`, `uam`, `switch-zstd`,
 `switch-expat`, `switch-zlib`):
