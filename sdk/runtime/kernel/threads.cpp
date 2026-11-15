@@ -111,6 +111,8 @@ void NameHostThread(const char* name) {
 #endif
 }
 
+struct SpawnExit {};  // ExitThread: back to the thread's root
+
 // recompiled code nests host frames as deep as the guest's calls, give it room
 void Spawn(std::function<void()> fn) {
     auto* f = new std::function<void()>(std::move(fn));
@@ -123,17 +125,62 @@ void Spawn(std::function<void()> fn) {
     HANDLE h = ::CreateThread(nullptr, 64u << 20, entry, f, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     if (h) ::CloseHandle(h);
 #else
+    // ROTS: finished threads are joined here, at the next spawn, instead of detached. libnx has no detach: a
+    // detached thread's stack was never given back, and on the Switch a stack is real memory, not a reservation.
+    // Revenge of the Sith starts four decoder threads per movie; by the second movie thread creation failed, the
+    // decoder stalled and its sound looped (console, 2026-11-16).
+    struct Running {
+        pthread_t th;
+        std::shared_ptr<std::atomic<bool>> done;
+    };
+    static std::mutex reap_lock;
+    static std::vector<Running> running;
+    {
+        std::lock_guard<std::mutex> lock(reap_lock);
+        for (auto it = running.begin(); it != running.end();) {
+            if (it->done->load(std::memory_order_acquire)) {
+                pthread_join(it->th, nullptr);
+                it = running.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    struct Start {
+        std::function<void()>* fn;
+        std::shared_ptr<std::atomic<bool>> done;
+    };
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    auto* start = new Start{f, done};
     pthread_attr_t attr;
     pthread_attr_init(&attr);
+#ifdef __SWITCH__
+    pthread_attr_setstacksize(&attr, 32u << 20);  // real memory on the Switch; the xboxrecomp port ran this game on 8
+#else
     pthread_attr_setstacksize(&attr, 64u << 20);
+#endif
     pthread_t th;
-    pthread_create(&th, &attr, [](void* p) -> void* {
-        std::unique_ptr<std::function<void()>> g(static_cast<std::function<void()>*>(p));
-        (*g)();
+    int rc = pthread_create(&th, &attr, [](void* p) -> void* {
+        std::unique_ptr<Start> st(static_cast<Start*>(p));
+        {
+            std::unique_ptr<std::function<void()>> g(st->fn);
+            try {
+                (*g)();
+            } catch (const SpawnExit&) {
+            }
+        }
+        st->done->store(true, std::memory_order_release);
         return nullptr;
-    }, f);
-    pthread_detach(th);
+    }, start);
     pthread_attr_destroy(&attr);
+    if (rc != 0) {
+        LOGE("threads: a host thread could not be created (%d)", rc);
+        delete start;
+        delete f;
+        return;
+    }
+    std::lock_guard<std::mutex> lock(reap_lock);
+    running.push_back({th, done});
 #endif
 }
 
@@ -358,7 +405,9 @@ void ExitThread(uint32_t code) {
 #ifdef _WIN32
     ::ExitThread(code);
 #else
-    pthread_exit(nullptr);
+    // ROTS: unwound to Spawn's root, which marks the thread done so its stack is joined and given back
+    // (pthread_exit skipped that, and on the Switch it does not unwind at all)
+    throw SpawnExit{};
 #endif
 }
 
