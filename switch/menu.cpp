@@ -19,6 +19,7 @@
 #include "core/log.h"
 #include "font8x8.h"
 #include "host.h"
+#include "kernel/kernel.h"
 
 // the menu's settings, kept in the settings file through the game's options (game/src/common/game_info.cpp)
 namespace sheroes {
@@ -391,6 +392,17 @@ void OnPad(int port, input::Pad& p) {
             }
         }
         combo_held = combo;
+        // ROTS: + alone during a movie skips it (testing; the game itself lets few of them be skipped)
+        static bool plus_held = false;
+        bool plus = (b & HidNpadButton_Plus) && !(b & HidNpadButton_Minus);
+        if (plus && !plus_held && !g_open) {
+            uint64_t now = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                        std::chrono::steady_clock::now().time_since_epoch())
+                                        .count());
+            uint64_t movie = kernel::MovieReadMs();
+            if (movie && now - movie < 3000 && kernel::SkipMovie()) LOGR("menu: movie skipped with +");
+        }
+        plus_held = plus;
         // after the menu: nothing until every button is let go, so the press that closed it does not reach the game
         constexpr uint64_t kAny = HidNpadButton_A | HidNpadButton_B | HidNpadButton_X | HidNpadButton_Y | HidNpadButton_L |
                                   HidNpadButton_R | HidNpadButton_ZL | HidNpadButton_ZR | HidNpadButton_Plus |

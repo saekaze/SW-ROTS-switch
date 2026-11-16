@@ -96,6 +96,8 @@ inline void Return(X86Context& ctx, uint32_t value, int stack_args) {
 // runs guest code from the host on the current guest thread
 // ROTS: when the title last read a movie file (.sfd, .xmv, .bik), steady clock milliseconds; 0 if never
 uint64_t MovieReadMs();
+// ROTS: ends the movie playing now (its file reads as ended); false if none
+bool SkipMovie();
 
 uint32_t CallGuest(X86Context& ctx, uint32_t fn, const uint32_t* args, size_t count);
 inline uint32_t CallGuest(X86Context& ctx, uint32_t fn, std::initializer_list<uint32_t> args) {

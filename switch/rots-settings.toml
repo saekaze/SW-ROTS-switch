@@ -107,6 +107,7 @@ effects_volume = 100
 # so 60 should only be smoother; if anything plays too fast, set 30.
 game_fps = 60
 
+# Press + during a movie (cutscene video) and it skips the movie.
 # CPU clock while a movie (cutscene video) plays, in MHz; 0 = off. The movies are decoded by the game's own code,
 # which at the stock 1020 MHz runs a little slower than the video, so they drift behind their sound. 1785 (default)
 # plays them at full speed; the clock goes back as soon as the movie ends. The log shows "clocks: movie playing".

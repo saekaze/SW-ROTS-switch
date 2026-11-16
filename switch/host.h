@@ -42,6 +42,9 @@ void PgoStart();
 void PgoDump(bool now);  // now = false: only when a minute has gone by since the last
 // profile = true in the settings: samples the busy threads into logs/prof.bin (profiler.cpp)
 void StartProfiler();
+// ROTS: the freeze watchdog (no frame for 3 s: every thread's stack into the log); NotePresent at each frame
+void StartWatchdog();
+void NotePresent();
 // the console's overlays through SaltyNX (overlays.cpp): FPS and resolution for Status Monitor / Horizon OC Monitor,
 // and the handheld/docked mode picked in ReverseNX-RT. All do nothing without SaltyNX
 void OverlaysEnable(bool on);                              // the saltynx setting

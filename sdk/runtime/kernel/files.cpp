@@ -10,6 +10,7 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <unordered_map>
 #ifdef __SWITCH__
@@ -133,10 +134,21 @@ fs::path MatchCase(const fs::path& dir, const std::vector<std::string>& parts) {
 
 std::atomic<uint64_t> g_movie_read_ms{0};
 
+bool IsMovie(const std::string& x) {
+    if (x.size() <= 4) return false;
+    std::string ext = x.substr(x.size() - 4);
+    for (char& c : ext) c = char(std::tolower(uint8_t(c)));
+    return ext == ".sfd" || ext == ".xmv" || ext == ".bik";
+}
+
 struct File;
 void ForgetLazy(File* f);
+// ROTS: the movie file last read, for SkipMovie
+std::mutex g_movie_lock;
+std::weak_ptr<File> g_movie_file;
 
 struct File : Object {
+    std::atomic<bool> skipped{false};  // ROTS: a movie the player skipped: its reads answer end of file
     fs::path host;
     std::string xbox;
     FILE* fp = nullptr;
@@ -692,6 +704,11 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
     ResetEvent(*f);
     std::lock_guard<std::mutex> lock(f->io);
     uint64_t pos = Offset(*f, off);
+    // ROTS: a skipped movie reads as ended: the title's own player finishes it as if it had played out
+    if (!write && f->skipped.load()) {
+        f->pos = pos;
+        return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);
+    }
     auto t0 = std::chrono::steady_clock::now();
     FileBytes cached = write ? nullptr : SmallFile(*f);
     if (!cached && f->lazy && !OpenLazy(*f)) return kAccessDenied;
@@ -728,11 +745,12 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
     }
     f->pos = pos + n;
     // ROTS: a movie being streamed (CRI Sofdec .sfd, XMV, Bink): the Switch host raises the CPU clock while it plays
-    if (!write && f->xbox.size() > 4) {
-        std::string ext = f->xbox.substr(f->xbox.size() - 4);
-        for (char& c : ext) c = char(std::tolower(uint8_t(c)));
-        if (ext == ".sfd" || ext == ".xmv" || ext == ".bik")
-            g_movie_read_ms.store(uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
+    if (!write && IsMovie(f->xbox)) {
+        {
+            std::lock_guard<std::mutex> ml(g_movie_lock);
+            g_movie_file = f;
+        }
+        g_movie_read_ms.store(uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
                                                std::chrono::steady_clock::now().time_since_epoch())
                                                .count()));
     }
@@ -1040,5 +1058,17 @@ KERNEL_EXPORT(215, NtQuerySymbolicLinkObject, 3) {
 
 // ROTS: when a movie file was last read, steady clock ms (0: never)
 uint64_t MovieReadMs() { return g_movie_read_ms.load(); }
+
+// ROTS: the movie playing now ends: its file reads as ended from here on
+bool SkipMovie() {
+    std::shared_ptr<File> m;
+    {
+        std::lock_guard<std::mutex> ml(g_movie_lock);
+        m = g_movie_file.lock();
+    }
+    if (!m || m->skipped.exchange(true)) return false;
+    LOGI("files: movie %s skipped", m->xbox.c_str());
+    return true;
+}
 
 }  // namespace kernel

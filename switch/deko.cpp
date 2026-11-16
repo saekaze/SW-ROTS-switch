@@ -2443,6 +2443,7 @@ void DekoBackend::Present(const Surface& front) {
         }
     }
     last_present_ns_ = now_ns;
+    host::NotePresent();  // ROTS: the freeze watchdog
     Target* t = EnsureTarget(front, false);
     if (t && LatchCpuWrite(*t)) UploadTarget(*t, front);
     Image* shown = t ? &t->img : nullptr;

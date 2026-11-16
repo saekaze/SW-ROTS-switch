@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "app/app.h"
+#include "kernel/kernel.h"
 #include "core/input.h"
 #include "core/log.h"
 #include "harness.h"
@@ -80,6 +81,9 @@ Pad Poll(int port) {
             std::fclose(f);
             std::remove(cmd.c_str());
         }
+        // ROTS: skipmovie in the run folder ends the movie playing, as + does on the Switch
+        std::string skip = (app::ExeDir() / "skipmovie").string();
+        if (std::remove(skip.c_str()) == 0) kernel::SkipMovie();
         for (const Press& s : script)
             if (t >= s.at && t <= s.at + s.len) Apply(s.buttons, p);
         if (live.at >= 0 && t >= live.at && t <= live.at + live.len) Apply(live.buttons, p);

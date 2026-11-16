@@ -412,6 +412,7 @@ int main(int, char**) {
     app::LogSystem();
     host::ApplyClocks();
     if (g_profile) host::StartProfiler();
+    host::StartWatchdog();
     host::PgoStart();
 
     if (!TitleMode()) {

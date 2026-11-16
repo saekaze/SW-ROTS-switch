@@ -7,6 +7,7 @@
 // tables per function with the ELF: nothing is resolved on the console. A few percent of one core while on.
 #include <switch.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -27,7 +28,7 @@ struct Sample {
 };
 static_assert(sizeof(Sample) == 32);
 
-constexpr int kMaxThreads = 48;
+constexpr int kMaxThreads = 128;  // ROTS: every soft reboot makes the title's threads again
 constexpr unsigned kMaxSamples = 60000;  // 10 s at 1 kHz of up to six busy threads
 
 std::mutex g_lock;
@@ -140,7 +141,105 @@ extern "C" void sheroes_profile_thread(const char* name) {
     g_count++;
 }
 
+namespace {
+
+// ROTS: the freeze watchdog. No frame shown for 3 s: every registered thread's pc, lr and x29 chain go to the log, as
+// offsets into the NRO (tools/stall_report.py names them with the build's ELF). A Switch freeze in mission 1 left no
+// trace in the log and does not happen on the PC (2026-11-16)
+std::atomic<uint64_t> g_last_present{0}, g_presents{0};
+
+void DumpThreads(const char* why) {
+    Handle h[kMaxThreads];
+    char names[kMaxThreads][24];
+    int n;
+    {
+        std::lock_guard lock(g_lock);
+        n = g_count;
+        std::memcpy(h, g_handles, sizeof(Handle) * size_t(n));
+        std::memcpy(names, g_names, sizeof(names[0]) * size_t(n));
+    }
+    // all contexts first, then the log: a paused thread may hold the log's lock
+    struct Ctx {
+        bool ok;
+        uint64_t pc, lr, ret[24];
+        int depth;
+    };
+    static Ctx c[kMaxThreads];
+    for (int i = 0; i < n; i++) {
+        c[i] = {};
+        if (R_FAILED(svcSetThreadActivity(h[i], ThreadActivity_Paused))) continue;
+        ThreadContext ctx;
+        if (R_SUCCEEDED(svcGetThreadContext3(&ctx, h[i]))) {
+            c[i].ok = true;
+            c[i].pc = ctx.pc.x;
+            c[i].lr = ctx.lr;
+            MemoryInfo mi;
+            u32 pi;
+            if (!(ctx.fp & 7) && R_SUCCEEDED(svcQueryMemory(&mi, &pi, ctx.fp)) && (mi.perm & Perm_R)) {
+                uint64_t fp = ctx.fp, lo = mi.addr, hi = mi.addr + mi.size;
+                for (int k = 0; k < 24 && fp >= lo && fp + 16 <= hi && !(fp & 7); k++) {
+                    const uint64_t* frame = reinterpret_cast<const uint64_t*>(fp);
+                    c[i].ret[c[i].depth++] = frame[1];
+                    if (frame[0] <= fp) break;
+                    fp = frame[0];
+                }
+            }
+        }
+        svcSetThreadActivity(h[i], ThreadActivity_Runnable);
+    }
+    LOGR("stall: %s; NRO base %p, offsets below are into rots.nro", why, reinterpret_cast<void*>(&_start));
+    for (int i = 0; i < n; i++) {
+        if (!c[i].ok) continue;
+        char line[512];
+        int at = std::snprintf(line, sizeof line, "stall: %s pc %08X lr %08X:", names[i], Offset(c[i].pc), Offset(c[i].lr));
+        for (int k = 0; k < c[i].depth && at < (int)sizeof line - 12; k++)
+            at += std::snprintf(line + at, sizeof line - size_t(at), " %08X", Offset(c[i].ret[k]));
+        LOGR("%s", line);
+    }
+    logx::Flush();
+}
+
+void Watchdog(void*) {
+    const uint64_t freq = armGetSystemTickFreq();
+    uint64_t dumped_at = 0;
+    int dumps = 0;
+    for (;;) {
+        svcSleepThread(500000000ull);
+        uint64_t last = g_last_present.load(), now = armGetSystemTick();
+        if (g_presents.load() < 120 || !last) continue;
+        uint64_t stalled = now - last;
+        if (stalled < freq * 3) {
+            dumped_at = 0;
+            continue;
+        }
+        // once at 3 s, again at 15 s (did anything move), then quiet until frames come back; at most 6 a session
+        bool again = dumped_at == 1 && stalled > freq * 15;
+        if ((dumped_at == 0 || again) && dumps < 6) {
+            char why[64];
+            std::snprintf(why, sizeof why, "no frame for %.1f s", double(stalled) / double(freq));
+            DumpThreads(why);
+            dumps++;
+            dumped_at = dumped_at == 0 ? 1 : 2;
+        }
+    }
+}
+
+Thread g_watchdog;
+
+}  // namespace
+
 namespace host {
+
+void NotePresent() {
+    g_last_present.store(armGetSystemTick(), std::memory_order_relaxed);
+    g_presents.fetch_add(1, std::memory_order_relaxed);
+}
+
+void StartWatchdog() {
+    if (R_FAILED(threadCreate(&g_watchdog, Watchdog, nullptr, nullptr, 0x8000, 0x2A, -2)) ||
+        R_FAILED(threadStart(&g_watchdog)))
+        LOGE("stall: the freeze watchdog could not start");
+}
 
 void StartProfiler() {
     g_path = (app::ExeDir() / "logs" / "prof.bin").string();
