@@ -29,6 +29,9 @@ public:
         return true;
     }
     void Clear(const State& s, uint32_t n, const uint8_t* rects, uint32_t flags, uint32_t color, float z, uint32_t stencil) override {
+        // SIM_FULL_CLEAR=1: a colour clear of any channel clears all four, as deko3d did before (to show that bug)
+        static const bool full = harness::Env("SIM_FULL_CLEAR") != 0;
+        if (full && (flags & 0xF0)) flags |= 0xF0;
         if (drawing_) reference::Clear(s, n, rects, flags, color, z, stencil);
         if (list_)
             std::fprintf(list_, "CLEAR rects=%u flags=%X color=%08X z=%g stencil=%X rt=%08X zs=%08X\n", n, flags, color, z,
