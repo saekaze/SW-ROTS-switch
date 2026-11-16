@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <deque>
+#include <condition_variable>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -689,29 +691,20 @@ static FileBytes SmallFile(File& f) {
     return slot;
 }
 
-// pages is the FILE_SEGMENT_ELEMENT array for scatter and gather, 0 for one buffer
-static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
-    uint32_t h = a[0], event = a[1], apc = a[2], apc_ctx = a[3], iosb = a[4], buf = a[5], len = a[6], off = a[7];
-    auto f = FileFromHandle(h);
-    if (!f || (!f->fp && !f->entry && !f->lazy)) return kInvalidHandle;
-    if (write && (f->entry || f->lazy)) return kAccessDenied;
+// the transfer itself, with f->io held: the bytes and the file position; the status and count for Finish
+struct Moved {
+    uint32_t status, n;
+};
+static Moved Move(const std::shared_ptr<File>& f, bool write, uint64_t pos, uint32_t buf, uint32_t len, uint32_t pages,
+                  FileBytes cached) {
     // diagnostic: SHEROES_SLOW_READ_MS stretches every read, so a PC loads as slowly as an SD card
     static const int slow_ms = [] {
         const char* v = std::getenv("SHEROES_SLOW_READ_MS");
         return v ? std::atoi(v) : 0;
     }();
-    if (slow_ms > 0 && !write) std::this_thread::sleep_for(std::chrono::milliseconds(slow_ms));
-    ResetEvent(*f);
-    std::lock_guard<std::mutex> lock(f->io);
-    uint64_t pos = Offset(*f, off);
-    // ROTS: a skipped movie reads as ended: the title's own player finishes it as if it had played out
-    if (!write && f->skipped.load()) {
-        f->pos = pos;
-        return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);
-    }
+    if (slow_ms > 0 && !write && !cached) std::this_thread::sleep_for(std::chrono::milliseconds(slow_ms));
     auto t0 = std::chrono::steady_clock::now();
-    FileBytes cached = write ? nullptr : SmallFile(*f);
-    if (!cached && f->lazy && !OpenLazy(*f)) return kAccessDenied;
+    if (!cached && f->lazy && !OpenLazy(*f)) return {kAccessDenied, 0};
     if (f->fp && !cached) Seek(f->fp, pos);
     uint32_t n = 0;
     while (cached && n < len && pos + n < cached->size()) {
@@ -751,8 +744,8 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
             g_movie_file = f;
         }
         g_movie_read_ms.store(uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                               std::chrono::steady_clock::now().time_since_epoch())
-                                               .count()));
+                                           std::chrono::steady_clock::now().time_since_epoch())
+                                           .count()));
     }
     if (logx::kVerbose) {
         // STREET: every transfer with a hash of its bytes, to compare a run with another platform's line by line
@@ -763,9 +756,102 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
         LOGD("%s %s at %llX: %u of %u to %08X, fnv %08X, %.1f ms%s", write ? "write" : "read", f->xbox.c_str(),
              (unsigned long long)pos, n, len, buf, hash, ms, cached ? " (memory)" : "");
     }
-    if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full
-    if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);
-    return Finish(*f, kSuccess, n, event, apc, apc_ctx, iosb);
+    if (write && n < len) return {0xC000007F, n};  // disk full
+    if (!write && len && !n) return {kEndOfFile, 0};
+    return {kSuccess, n};
+}
+
+// ROTS: reads on a handle opened for asynchronous I/O, with their offset given, that need the card are done in the
+// background, as the Xbox's drivers do: the call returns STATUS_PENDING at once and a worker reads, in the order asked,
+// then writes the status block, signals the file and the event and queues the APC to the thread that asked. Done on
+// the asking thread before, each read stopped the title's main loop (Revenge of the Sith reads its streamed dialogue
+// and level data, gen_dialogue.rpx and others, from the main thread with overlapped reads it polls each frame: 915 of
+// 1049 reads in a harness run were the main thread's), a stall the length of the read on the SD card.
+// ROTS_SYNC_READS=1 goes back to reading on the asking thread.
+struct AsyncRead {
+    std::shared_ptr<File> f;
+    uint64_t pos;
+    uint32_t event, apc, apc_ctx, iosb, buf, len, pages;
+    ThreadRef issuer;
+    uint64_t epoch;
+};
+std::mutex g_aio_lock;
+std::condition_variable g_aio_cv;
+std::deque<AsyncRead> g_aio;
+std::atomic<uint64_t> g_aio_epoch{0};  // a soft reboot drops the reads queued before it
+
+static void AsyncWorker() {
+    for (;;) {
+        AsyncRead r;
+        {
+            std::unique_lock<std::mutex> lock(g_aio_lock);
+            g_aio_cv.wait(lock, [] { return !g_aio.empty(); });
+            r = std::move(g_aio.front());
+            g_aio.pop_front();
+        }
+        if (r.epoch != g_aio_epoch.load() || !HostGuestEnter()) continue;
+        Moved m;
+        {
+            std::lock_guard<std::mutex> lock(r.f->io);
+            m = Move(r.f, false, r.pos, r.buf, r.len, r.pages, nullptr);
+        }
+        // the count before the status: a title polling the status block sees both
+        if (r.iosb) {
+            W32(r.iosb + 4, m.n);
+            std::atomic_thread_fence(std::memory_order_release);
+            W32(r.iosb, m.status);
+        }
+        SetEvent(*r.f);
+        if (r.event)
+            if (ObjectRef e = FromHandle(r.event)) SetEvent(*e);
+        if (r.apc && r.issuer) QueueApc(*r.issuer, r.apc, r.apc_ctx, r.iosb, 0);
+        HostGuestLeave();
+    }
+}
+
+static const bool kAioRebootHook = (kernel::OnReboot([] {
+    std::lock_guard<std::mutex> lock(g_aio_lock);
+    g_aio.clear();
+    g_aio_epoch.fetch_add(1);
+}), true);
+
+static bool AsyncReads() {
+    static const bool on = [] {
+        const char* e = std::getenv("ROTS_SYNC_READS");
+        if (e && *e == '1') return false;
+        std::thread(AsyncWorker).detach();
+        return true;
+    }();
+    return on;
+}
+
+// pages is the FILE_SEGMENT_ELEMENT array for scatter and gather, 0 for one buffer
+static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
+    uint32_t h = a[0], event = a[1], apc = a[2], apc_ctx = a[3], iosb = a[4], buf = a[5], len = a[6], off = a[7];
+    auto f = FileFromHandle(h);
+    if (!f || (!f->fp && !f->entry && !f->lazy)) return kInvalidHandle;
+    if (write && (f->entry || f->lazy)) return kAccessDenied;
+    ResetEvent(*f);
+    std::unique_lock<std::mutex> lock(f->io);
+    uint64_t pos = Offset(*f, off);
+    // ROTS: a skipped movie reads as ended: the title's own player finishes it as if it had played out
+    if (!write && f->skipped.load()) {
+        f->pos = pos;
+        return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);
+    }
+    FileBytes cached = write ? nullptr : SmallFile(*f);
+    if (!write && !cached && f->async && off && R64(off) < (1ull << 62) && AsyncReads()) {
+        if (event)
+            if (ObjectRef e = FromHandle(event)) ResetEvent(*e);
+        IoStatus(iosb, kPending, 0);
+        lock.unlock();
+        std::lock_guard<std::mutex> q(g_aio_lock);
+        g_aio.push_back({f, pos, event, apc, apc_ctx, iosb, buf, len, pages, CurrentRef(), g_aio_epoch.load()});
+        g_aio_cv.notify_one();
+        return kPending;
+    }
+    Moved m = Move(f, write, pos, buf, len, pages, cached);
+    return Finish(*f, m.status, m.n, event, apc, apc_ctx, iosb);
 }
 
 KERNEL_EXPORT(219, NtReadFile, 8) { return Transfer(a, false, 0); }

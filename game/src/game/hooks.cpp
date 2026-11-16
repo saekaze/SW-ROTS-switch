@@ -167,3 +167,14 @@ X86_FUNC(sub_004C0F80) {
     ctx.edx = 0xFF;
     ctx.esp += 4;
 }
+
+// ROTS: B0011 at 0051D760, DirectSoundGetSampleTime: the library reads the APU's sample counter (0xFE80200C) once its
+// own DirectSoundCreate ran, else answers 0. The HLE replaces DirectSoundCreate, so it was always 0, and the dialogue
+// player (0x79C60) times each line by it. The mixer's 48 kHz count instead.
+namespace xdk {
+uint32_t DsSampleTime();
+}
+X86_FUNC(sub_0051D760) {
+    ctx.eax = xdk::DsSampleTime();
+    ctx.esp += 4;  // ret
+}

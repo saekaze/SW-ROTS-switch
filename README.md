@@ -143,6 +143,9 @@ On top of the toolchain it is built on:
   `D3DDevice_Release` returning 0 (the game releases the device in a loop).
 - Suspended threads keep still: a waiting thread the game had suspended for a load took the lock it waited for and
   parked holding it, and the main loop froze on that lock a few minutes into a mission.
+- Dialogue plays to the end: the game's dialogue player stops a line when the stream has not reported "playing" for 40
+  frames, and the port's streams never reported it, so every line was cut after 1.4 s (0.7 s at 60 fps).
+- File reads the game asks for in the background are done in the background (they stalled the main loop on the SD card).
 - The movies' YUV to RGB conversion (CRI Sofdec, MMX) runs natively, bit-exact and about 3.6 times faster.
 - deko3d clears only the colour channels the game asks for: the game clears the alpha alone after the whole scene
   to mask its heat haze, and clearing all four channels turned the screen black under the HUD.

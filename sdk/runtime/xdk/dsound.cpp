@@ -305,9 +305,13 @@ void Deactivate(Voice& v) {
 constexpr double kStreamRefillSeconds = 0.08;
 std::atomic<uint32_t> g_stream_dry{0};
 
+// ROTS: the mixer's sample clock (48 kHz frames mixed so far), as the APU's sample counter DirectSoundGetSampleTime reads
+std::atomic<uint32_t> g_sample_time{0};
+
 void Render(float* out, uint32_t frames) {
     std::memset(out, 0, frames * 2 * sizeof(float));
     std::lock_guard<std::recursive_mutex> lock(g_lock);
+    g_sample_time.fetch_add(frames, std::memory_order_relaxed);
     {
         // every 5 s with new ones: how often a stream ran dry
         static auto last = std::chrono::steady_clock::now();
@@ -374,6 +378,11 @@ void Render(float* out, uint32_t frames) {
                 if (v.packets.empty()) {
                     v.pos = 0;
                     if (v.ending) {
+                        static const bool trace = [] {
+                            const char* e = std::getenv("ROTS_DS_TRACE");
+                            return e && *e == '1';
+                        }();
+                        if (trace) LOGR("ds stream %08X played out to its end", v.obj);
                         Deactivate(v);
                     } else if (v.active) {
                         v.starved = true;
@@ -755,11 +764,26 @@ HLE_STDCALL(IDirectSound_GetOutputLevels, 3) {
 HLE_STDCALL(DirectSoundCreateBuffer, 2) { return NewBuffer(a[0], a[1]); }
 HLE_STDCALL(IDirectSound_CreateSoundBuffer, 4) { return NewBuffer(a[1], a[2]); }
 
+void TraceVoice(const char* name, const Voice& v, const Args& a, uint32_t nargs) {
+    static const bool on = [] {
+        const char* e = std::getenv("ROTS_DS_TRACE");
+        return e && *e == '1';
+    }();
+    if (!on || v.is3d || v.channels != 1 || v.nbins) return;
+    bool poll = !std::strcmp(name, "GetStatus") || !std::strcmp(name, "GetCurrentPosition");
+    static std::map<uint32_t, uint32_t> polls;
+    if (poll && polls[v.obj]++ % 30) return;
+    double rate = v.freq ? v.freq : v.rate;
+    LOGR("ds trace %08X %s(%08X %08X %08X) playing %d looping %d paused %d sync %d pos %.2f s of %.2f s", v.obj, name,
+         nargs > 1 ? a[1] : 0, nargs > 2 ? a[2] : 0, nargs > 3 ? a[3] : 0, int(v.playing), int(v.looping), int(v.paused),
+         int(v.sync), rate > 0 ? v.pos / rate : 0.0, rate > 0 ? FramesOf(v, v.play_len) / rate : 0.0);
+}
 #define BUFFER(name, nargs)                                 \
     static uint32_t buf_##name(Voice& v, const Args& a);    \
     HLE_STDCALL(IDirectSoundBuffer_##name, nargs) {         \
         std::lock_guard<std::recursive_mutex> lock(g_lock); \
         Voice* v = Find(a[0]);                              \
+        if (v) TraceVoice(#name, *v, a, nargs);             \
         return v ? buf_##name(*v, a) : 0x80004005u;         \
     }                                                       \
     static uint32_t buf_##name([[maybe_unused]] Voice& v, [[maybe_unused]] const Args& a)
@@ -826,6 +850,9 @@ BUFFER(Stop, 1) {
 // (DSBSTOPEX_ENVELOPE, 1) alone still stops now: the port has no envelopes
 BUFFER(StopEx, 4) {
     if (a[3] & 2) {
+        static std::atomic<int> shown{0};
+        if (shown.fetch_add(1) < 8)
+            LOGR("dsound: %08X StopEx flags %X: plays out to its end (%s)", v.obj, a[3], v.looping ? "was looping" : "not looping");
         v.looping = false;
         return 0;
     }
@@ -975,6 +1002,31 @@ HLE_STDCALL(DirectSoundCreateStream, 2) {
     return 0;
 }
 
+// ROTS_DS_TRACE=1: the streams' calls (but the per-packet Process and the polls), with what is queued
+void TraceStream(const char* name, const Voice& v, const Args& a, uint32_t nargs, uint32_t caller) {
+    static const bool on = [] {
+        const char* e = std::getenv("ROTS_DS_TRACE");
+        return e && *e == '1';
+    }();
+    if (!on || !std::strcmp(name, "GetStatus") || !std::strcmp(name, "SetVolume") || !std::strcmp(name, "SetPosition") ||
+        !std::strcmp(name, "SetFrequency") || !std::strcmp(name, "SetMixBinVolumes"))
+        return;
+    static std::map<uint32_t, uint32_t> processed;
+    if (!std::strcmp(name, "Process") && processed[v.obj]++ % 20) return;
+    if (!std::strcmp(name, "SetFormat") && a[1])
+        LOGR("ds stream %08X format: tag %X, %u ch, %u Hz, %u bytes/s, align %u, %u bits", v.obj, R16(a[1]), R16(a[1] + 2),
+             R32(a[1] + 4), R32(a[1] + 8), R16(a[1] + 12), R16(a[1] + 14));
+    if (!std::strcmp(name, "Process") && a[1])
+        LOGR("ds stream %08X packet: %u bytes", v.obj, R32(a[1] + 4));
+    double queued = -v.pos;
+    for (const Packet& pk : v.packets) queued += FramesOf(v, pk.size);
+    double rate = v.freq ? v.freq : v.rate;
+    LOGR("ds stream %08X %s(%08X %08X %08X) from %08X, %u ch %u Hz, %zu packets queued (%.2f s), active %d ending %d paused %d "
+         "starved %d, volume %.3f",
+         v.obj, name, nargs > 1 ? a[1] : 0, nargs > 2 ? a[2] : 0, nargs > 3 ? a[3] : 0, caller, unsigned(v.channels),
+         unsigned(v.rate), v.packets.size(), rate > 0 ? queued / rate : 0.0, int(v.active), int(v.ending), int(v.paused),
+         int(v.starved), double(v.volume));
+}
 #define STREAM(name, nargs)                                     \
     static uint32_t str_##name(Voice& v, const Args& a);        \
     HLE_STDCALL(CDirectSoundStream_##name, nargs) {             \
@@ -983,6 +1035,9 @@ HLE_STDCALL(DirectSoundCreateStream, 2) {
         {                                                       \
             std::lock_guard<std::recursive_mutex> lock(g_lock); \
             Voice* v = Find(a[0]);                              \
+            if (v) TraceStream(#name, *v, a, nargs, R32(ctx.esp) >= 0x51D460 && R32(ctx.esp) < 0x53C260 ? R32(ctx.esp + 4 * (nargs + 1)) : R32(ctx.esp)); \
+            if (v && v->channels == 1 && !std::strcmp(#name, "FlushEx") && std::getenv("ROTS_DS_TRACE")) \
+                ::kernel::LogGuestStack(ctx, 24);                \
             r = v ? str_##name(*v, a) : 0x80004005u;            \
             flushed.swap(t_flushed);                            \
         }                                                       \
@@ -1032,8 +1087,14 @@ STREAM(GetInfo, 2) {
     W32(info + 12, 0);
     return 0;
 }
+// DSSTREAMSTATUS_READY 1 (room for a packet), PLAYING 0x10000, PAUSED 0x20000, STARVED 0x40000. ROTS: the playing,
+// paused and starved bits were missing: Revenge of the Sith's dialogue player (0x79C60) polls them each frame and stops
+// a line after 40 frames without any (state 7, then FlushEx), so every line of dialogue was cut 41 frames in: 1.37 s
+// at 30 fps, 0.68 s at 60 (harness trace, 2026-11-16)
 STREAM(GetStatus, 2) {
-    W32(a[1], v.packets.size() < v.max_packets ? 1u : 0u);  // XMEDIASTATUS_ACCEPT_INPUT
+    uint32_t st = v.packets.size() < v.max_packets ? 1u : 0u;
+    if (v.active) st |= v.paused || v.sync ? 0x20000u : v.starved ? 0x40000u : 0x10000u;
+    W32(a[1], st);
     return 0;
 }
 STREAM(Process, 3) {
@@ -1056,6 +1117,9 @@ STREAM(Flush, 1) {
     FlushStream(v);
     return 0;
 }
+// (this, time stamp low, high, flags): flushed now. ROTS: DSSTREAMFLUSHEX_ASYNC (1) only means the call does not wait
+// for it; the title flushes music streams with it at full volume and starts the next at once (checked 2026-11-16:
+// letting the queue play out first overlapped them)
 STREAM(FlushEx, 4) {
     if (a[3] && !v.active) return 0;
     FlushStream(v);
@@ -1115,3 +1179,8 @@ static const bool kDsRebootHook = (kernel::OnReboot([] {
     g_top[0] = 0, g_top[1] = 1, g_top[2] = 0;
     g_rolloff = 1;
 }), true);
+
+namespace xdk {
+// ROTS: DirectSoundGetSampleTime's clock: 48 kHz frames mixed so far (the game hook at 0051D760)
+uint32_t DsSampleTime() { return g_sample_time.load(std::memory_order_relaxed); }
+}  // namespace xdk
