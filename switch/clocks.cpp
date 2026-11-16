@@ -36,6 +36,51 @@ bool UseClkrst() { return hosversionAtLeast(8, 0, 0); }
 uint32_t g_movie_boost_mhz = 1785;
 bool g_movie_boosting = false;
 
+// ROTS: sys-clk with a profile for this title (or a global one) sets its own CPU rate every few hundred ms, so the
+// movie boost held for well under a second at a time (the user's log: "cpu at 1020 MHz instead of 1785", every second
+// of a movie). sys-clk's own override (its IPC "sys:clk", API 4: command 8 takes the module and Hz, 0 Hz clears it)
+// wins over its profiles: the boost asks for it while a movie plays and clears it when the movie ends or the title
+// exits. Asked only when sys-clk is running (checked without waiting for it) and speaks API 4.
+Service g_sysclk;
+bool g_sysclk_tried = false, g_sysclk_open = false, g_sysclk_overriding = false;
+
+bool SysClkOpen() {
+    if (g_sysclk_tried) return g_sysclk_open;
+    g_sysclk_tried = true;
+    // Atmosphere's sm extension AtmosphereHasService (65100): asking sm for a service nobody registered would wait
+    // for it forever. sm speaks TIPC from 12.0.0 on, CMIF before
+    const SmServiceName name = smEncodeName("sys:clk");
+    u8 has = 0;
+    Result rc = hosversionAtLeast(12, 0, 0) ? tipcDispatchInOut(smGetServiceSessionTipc(), 65100, name, has)
+                                            : serviceDispatchInOut(smGetServiceSession(), 65100, name, has);
+    if (R_FAILED(rc) || !has) return false;
+    if (R_FAILED(smGetService(&g_sysclk, "sys:clk"))) return false;
+    u32 api = 0;
+    if (R_FAILED(serviceDispatchOut(&g_sysclk, 0, api)) || api != 4) {
+        LOGR("clocks: sys-clk found, API %u (the override needs 4); not asked", api);
+        serviceClose(&g_sysclk);
+        return false;
+    }
+    g_sysclk_open = true;
+    LOGR("clocks: sys-clk found; the movie boost asks it for an override");
+    return true;
+}
+
+// module 0 is the CPU; hz 0 clears the override
+bool SysClkOverride(u32 module, u32 hz) {
+    if (!SysClkOpen()) return false;
+    const struct {
+        u32 module, hz;
+    } in = {module, hz};
+    Result rc = serviceDispatchIn(&g_sysclk, 8, in);
+    if (R_FAILED(rc)) {
+        LOGR("clocks: sys-clk override of %u Hz failed (0x%X)", hz, rc);
+        return false;
+    }
+    g_sysclk_overriding = hz != 0;
+    return true;
+}
+
 // what a domain is held at now: its asked rate, or the movie boost's when that is higher
 uint32_t Want(const Domain& d) {
     if (g_movie_boosting && &d == &g_domains[0]) return std::max(d.want_mhz, g_movie_boost_mhz);
@@ -143,6 +188,8 @@ void WatchClocks() {
         g_movie_boosting = boost;
         if (boost && !cpu.original_hz) cpu.original_hz = GetHz(cpu);
         uint32_t hz = Want(cpu) ? std::min(Want(cpu), cpu.max_mhz) * 1000000u : cpu.original_hz;
+        if (boost) SysClkOverride(0, std::min(g_movie_boost_mhz, cpu.max_mhz) * 1000000u);
+        else if (g_sysclk_overriding) SysClkOverride(0, 0);
         if (hz) SetHz(cpu, hz);
         LOGR("clocks: movie %s, cpu %u MHz", boost ? "playing" : "over", GetHz(cpu) / 1000000u);
     }
@@ -165,6 +212,11 @@ void WatchClocks() {
 }
 
 void RestoreClocks() {
+    if (g_sysclk_overriding) SysClkOverride(0, 0);
+    if (g_sysclk_open) {
+        serviceClose(&g_sysclk);
+        g_sysclk_open = false;
+    }
     if (!g_open) return;
     for (Domain& d : g_domains)
         if (d.original_hz) {

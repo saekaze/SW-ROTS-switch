@@ -152,6 +152,8 @@ On top of the toolchain it is built on:
 - Dynamic resolution on deko3d: when a scene needs more GPU time than a frame has (the heavier cutscenes), the
   internal resolution steps down to as little as 70% of `render_percent` and back up when there is room
   (`dynamic_resolution` in the settings file).
+- The movie CPU boost asks sys-clk for an override when sys-clk is running (its profiles otherwise pulled the CPU back
+  every second), and clears it when the movie ends.
 - deko3d clears only the colour channels the game asks for: the game clears the alpha alone after the whole scene
   to mask its heat haze, and clearing all four channels turned the screen black under the HUD.
 - The Switch build without a Vulkan driver (deko3d only), RotS paths and title checks.

@@ -199,6 +199,34 @@ X86_FUNC(sub_00078EB0) {
     __imp__sub_00078EB0(ctx, base);
 }
 
+// ROTS: the plain dialogue player's stop (00079390, vtable 00566878) gives back only the line's first stream (+D4);
+// the start takes two for a 4-channel line and three for a 6-channel one (the channels byte at +11 of the sound's
+// definition at +10; 00077652 fills +D8 and +DC). The other player's stop (00079430) gives back all three. A plain
+// player playing such a line would keep a stream each time, till the pool of 12 ran out (the crash above). Given back
+// here as 00079430 does, and logged.
+X86_EXTERN_FUNC(__imp__sub_00079390);
+X86_EXTERN_FUNC(sub_00078C10);
+X86_FUNC(sub_00079390) {
+    const uint32_t player = ctx.ecx;
+    const uint32_t def = kernel::R32(player + 0x10);
+    const uint32_t channels = def ? kernel::R16(def + 0x10) >> 8 : 2;  // the byte at +11
+    const bool started = kernel::R32(player + 0xE0) != 0 && kernel::R32(player + 0x14) == 0;
+    const uint32_t extra[2] = {kernel::R32(player + 0xD8), channels == 6 ? kernel::R32(player + 0xDC) : 0xFFFFFFFFu};
+    __imp__sub_00079390(ctx, base);
+    if (!started || (channels != 4 && channels != 6)) return;
+    const uint32_t eax = ctx.eax, ecx = ctx.ecx, edx = ctx.edx;
+    for (uint32_t index : extra) {
+        if (index >= 12) continue;  // the pool's size (0068CC94 is 12)
+        X86_PUSH32(index);
+        X86_PUSH32(0x7948Au);  // as the call there
+        sub_00078C10(ctx, base);
+        ctx.esp += 4;  // cdecl
+        static int shown = 0;
+        if (shown++ < 8) LOGR("dialogue: a %u-channel line's stream %u given back at its stop", channels, index);
+    }
+    ctx.eax = eax, ctx.ecx = ecx, ctx.edx = edx;
+}
+
 // ROTS: the line slot allocator (00078FD0) leaves the slot's media object field as the last line left it; the line's
 // own open (000790F0, XFileCreateMediaObjectAsync) writes it only when it succeeds. Cleared here, so a slot whose line
 // never opened holds null (the poll below skips it, the release queue 000792B0 skips null) instead of a freed object.
