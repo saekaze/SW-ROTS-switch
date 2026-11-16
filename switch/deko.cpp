@@ -522,6 +522,7 @@ private:
     void UploadGammaRamp();
     void ReleaseOldTextures();
     void ApplySettings();
+    void UpdateDynamicScale();
     void ReadTiming(uint32_t slot);
     void SaveShot(Target& t, Image* shown);
     void SyncLocked(uint32_t data);
@@ -628,6 +629,10 @@ private:
     uint64_t sig_bytes_ = 0, tex_uploads_ = 0, tex_upload_bytes_ = 0;
     uint32_t check_frames_ = 1;
     uint64_t gpu_ns_ = 0, gpu_works_ = 0;
+    // ROTS: dynamic resolution: the GPU's time a frame, smoothed, and the share of the render scale it allows
+    double gpu_ema_ms_ = 0;
+    uint32_t dyn_step_ = 0;
+    uint64_t dyn_at_ = 0;
     // frame pacing: time between presents; with vsync over 18 ms is a missed refresh the player sees as a hitch
     uint64_t last_present_ns_ = 0, pace_max_ns_ = 0, last_acquire_ns_ = 0, last_reset_ns_ = 0;
     uint32_t pace_late_[3] = {};  // over 18, 25 and 34 ms
@@ -926,8 +931,10 @@ void DekoBackend::ReadTiming(uint32_t slot) {
     std::memcpy(&t0, core_.QueriesCpu() + slot * 32 + 8, 8);
     std::memcpy(&t1, core_.QueriesCpu() + slot * 32 + 24, 8);
     if (t1 > t0) {
-        gpu_ns_ += uint64_t(double(t1 - t0) * dk::kNsPerGpuUnit);
+        const double ns = double(t1 - t0) * dk::kNsPerGpuUnit;
+        gpu_ns_ += uint64_t(ns);
         gpu_works_++;
+        gpu_ema_ms_ = gpu_ema_ms_ > 0 ? gpu_ema_ms_ * 0.9 + ns / 1e6 * 0.1 : ns / 1e6;
     }
 }
 
@@ -2382,8 +2389,40 @@ void DekoBackend::ReleaseOldTextures() {
     }
 }
 
+// ROTS: dynamic_resolution: while the GPU's time a frame (smoothed over about 10 frames) passes 90% of the game's frame
+// time, the render scale steps down, to as little as 70% of render_percent; it steps back up once the time the larger
+// size would take (scaled by its pixel count) fits in 75% of the frame. Heavy cutscenes took 60 ms a frame at 720p
+// (the user's log, 2026-11-16) and fell to 15 fps. A step down waits a second after the last change and a step up three,
+// as each change makes the render targets again.
+constexpr float kDynSteps[] = {1.0f, 0.9f, 0.8f, 0.7f};
+
+void DekoBackend::UpdateDynamicScale() {
+    const auto& kSteps = kDynSteps;
+    constexpr uint32_t kLast = sizeof(kDynSteps) / sizeof(kDynSteps[0]) - 1;
+    if (!gpu::g_dynamic_resolution) {
+        dyn_step_ = 0;
+        return;
+    }
+    const double budget = gpu::g_frame_budget_us.load() / 1000.0;
+    const uint64_t fps = std::max<uint64_t>(1, uint64_t(1000.0 / budget + 0.5));
+    if (gpu_ema_ms_ <= 0 || presents_ < dyn_at_ + fps) return;
+    uint32_t to = dyn_step_;
+    if (gpu_ema_ms_ > budget * 0.9 && dyn_step_ < kLast) {
+        to = dyn_step_ + 1;
+    } else if (dyn_step_ > 0 && presents_ >= dyn_at_ + 3 * fps) {
+        const float r = kSteps[dyn_step_ - 1] / kSteps[dyn_step_];
+        if (gpu_ema_ms_ * r * r < budget * 0.75) to = dyn_step_ - 1;
+    }
+    if (to == dyn_step_) return;
+    const float r = kSteps[to] / kSteps[dyn_step_];
+    gpu_ema_ms_ *= r * r;  // the estimate at the new size, till its frames are measured
+    dyn_step_ = to;
+    dyn_at_ = presents_;
+}
+
 void DekoBackend::ApplySettings() {
-    float want = app::RenderScale(guest_h_);
+    UpdateDynamicScale();
+    float want = app::RenderScale(guest_h_) * kDynSteps[dyn_step_];
     if (std::fabs(want - scale_) <= 1e-4f) return;
     for (auto& [key, t] : targets_) {
         Retire(t.img);

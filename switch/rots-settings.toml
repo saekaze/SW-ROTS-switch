@@ -8,6 +8,11 @@
 # frame at the handheld's 307 MHz, and lagged. Docked, or with a GPU overclock, try 100.
 render_percent = 75
 
+# true (default): when a scene needs more GPU time than a frame has (the heavier cutscenes), the internal resolution
+# drops step by step, to as little as 70% of render_percent, and comes back once there is room again. The log shows each
+# change as "deko3d: render scale". false keeps render_percent all the time.
+dynamic_resolution = true
+
 # Frame rate cap (0 = none). 60 by default.
 # The log writes the real frame rate every 10 s ("perf:" lines).
 fps_cap = 60

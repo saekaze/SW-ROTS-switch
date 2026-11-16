@@ -199,6 +199,15 @@ X86_FUNC(sub_00078EB0) {
     __imp__sub_00078EB0(ctx, base);
 }
 
+// ROTS: the line slot allocator (00078FD0) leaves the slot's media object field as the last line left it; the line's
+// own open (000790F0, XFileCreateMediaObjectAsync) writes it only when it succeeds. Cleared here, so a slot whose line
+// never opened holds null (the poll below skips it, the release queue 000792B0 skips null) instead of a freed object.
+X86_EXTERN_FUNC(__imp__sub_00078FD0);
+X86_FUNC(sub_00078FD0) {
+    __imp__sub_00078FD0(ctx, base);
+    if (ctx.eax) kernel::W32(ctx.eax, 0);
+}
+
 // ROTS: the dialogue player's start (00077110, thiscall, 6 arguments, the first the result it writes). It takes a line
 // slot (00078FD0, kept at +E0), then streams from the game's own pool of DirectSound streams (00078B90; the pool at
 // 0068CC80: used +4, free +8, peak +C, entries +10, count +14). When the pool has no free stream (0xFFFFFFE2) the

@@ -79,6 +79,12 @@ inline std::atomic<uint32_t> g_render_spin_us{0};
 // Switch reads draw_copy from its settings; elsewhere SHEROES_DRAW_COPY=0/1.
 inline std::atomic<bool> g_draw_copy{true};
 
+// ROTS: dynamic_resolution lowers the render scale while the GPU's time a frame passes the game's frame time (heavy
+// cutscenes) and raises it again when there is room (switch/deko.cpp); g_frame_budget_us is that frame time, which the
+// game's info sets from its frame cap
+inline std::atomic<bool> g_dynamic_resolution{true};
+inline std::atomic<uint32_t> g_frame_budget_us{33333};
+
 // ROTS: shadows = false leaves out stencil shadow passes: the volumes (colour writes off, the stencil counting depth
 // fails or passes up and down) and the darkening drawn where the stencil is not equal (stencil not written)
 inline std::atomic<bool> g_stencil_shadows{true};

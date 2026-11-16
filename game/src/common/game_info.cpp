@@ -26,6 +26,7 @@ void PatchFile(const std::string& path, std::vector<uint8_t>& b) {
     // GAME_FPS in the environment (the PC harness, which reads no settings file) overrides game_fps
     uint32_t fps = g_game_fps;
     if (const char* e = std::getenv("GAME_FPS")) fps = uint32_t(std::atoi(e));
+    gpu::g_frame_budget_us = fps >= 60 ? 16667 : 33333;
     const std::string from = "fpsLimit=30", to = fps >= 60 ? "fpsLimit=60" : "fpsLimit=30";
     auto it = std::search(b.begin(), b.end(), from.begin(), from.end());
     if (it != b.end()) std::copy(to.begin(), to.end(), it);

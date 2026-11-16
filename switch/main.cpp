@@ -124,7 +124,8 @@ toml::table Table() {
                   {"gpu_mhz", int64_t(host::ClockWanted("gpu"))},
                   {"mem_mhz", int64_t(host::ClockWanted("mem"))},
                   {"movie_boost_mhz", int64_t(host::MovieBoost())},
-                  {"shadows", gpu::g_stencil_shadows.load()}};
+                  {"shadows", gpu::g_stencil_shadows.load()},
+                  {"dynamic_resolution", gpu::g_dynamic_resolution.load()}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));
@@ -193,6 +194,7 @@ void Load() {
     for (const char* c : {"cpu", "gpu", "mem"})
         host::SetClockWanted(c, t[std::string(c) + "_mhz"].value_or(host::ClockWanted(c)));
     gpu::g_stencil_shadows = t["shadows"].value_or(gpu::g_stencil_shadows.load());
+    gpu::g_dynamic_resolution = t["dynamic_resolution"].value_or(gpu::g_dynamic_resolution.load());
     host::SetMovieBoost(std::min<uint32_t>(t["movie_boost_mhz"].value_or(host::MovieBoost()), 1785));
     for (const Option& o : kGame.options) {
         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);

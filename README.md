@@ -149,6 +149,9 @@ On top of the toolchain it is built on:
   the slot pointing at the previous line's freed file object, and the next frame called into it (a crash in missions).
 - File reads the game asks for in the background are done in the background (they stalled the main loop on the SD card).
 - The movies' YUV to RGB conversion (CRI Sofdec, MMX) runs natively, bit-exact and about 3.6 times faster.
+- Dynamic resolution on deko3d: when a scene needs more GPU time than a frame has (the heavier cutscenes), the
+  internal resolution steps down to as little as 70% of `render_percent` and back up when there is room
+  (`dynamic_resolution` in the settings file).
 - deko3d clears only the colour channels the game asks for: the game clears the alpha alone after the whole scene
   to mask its heat haze, and clearing all four channels turned the screen black under the HUD.
 - The Switch build without a Vulkan driver (deko3d only), RotS paths and title checks.
