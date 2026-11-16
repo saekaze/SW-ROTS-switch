@@ -107,6 +107,9 @@ void x86_resume(X86Context& ctx, uint8_t* base, const X86Resume& r) {
 
 void x86_kernel(X86Context& ctx, uint8_t* base, uint32_t ordinal) {
     kernel::RebootPoint();
+    // ROTS: a thread another one suspended stops at its next kernel call, not only at its next wait: the title expects
+    // a suspended thread to be still (it suspends its workers around loads)
+    kernel::SuspendPoint();
     kernel::NoteCall(kernel::ExportName(ordinal));
     if (ordinal < 400 && g_exports[ordinal].fn) {
         g_exports[ordinal].fn(ctx, base);

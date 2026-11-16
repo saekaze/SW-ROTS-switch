@@ -141,6 +141,9 @@ On top of the toolchain it is built on:
   four DirectSound 3D calls on streams (cone and distance parameters) answered by the port: the library's own code
   wrote into objects the port's streams do not have and crashed a few minutes into a mission;
   `D3DDevice_Release` returning 0 (the game releases the device in a loop).
+- Suspended threads keep still: a waiting thread the game had suspended for a load took the lock it waited for and
+  parked holding it, and the main loop froze on that lock a few minutes into a mission.
+- The movies' YUV to RGB conversion (CRI Sofdec, MMX) runs natively, bit-exact and about 3.6 times faster.
 - deko3d clears only the colour channels the game asks for: the game clears the alpha alone after the whole scene
   to mask its heat haze, and clearing all four channels turned the screen black under the HUD.
 - The Switch build without a Vulkan driver (deko3d only), RotS paths and title checks.

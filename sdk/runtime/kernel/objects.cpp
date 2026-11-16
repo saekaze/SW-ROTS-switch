@@ -196,6 +196,15 @@ static uint32_t WaitFor(const std::vector<ObjectRef>& objs, bool wait_all, int64
     std::unique_lock<std::mutex> lock(g_dispatch);
     for (;;) {
         RebootPoint();
+        // ROTS: as on the console, a suspended thread's wait is not satisfied until it is resumed: taking the object
+        // first and parking after left a suspended thread owning what it had waited for (a critical section given
+        // to a thread the title had suspended for a load, and the main loop blocked on it: the Switch freeze)
+        if (self && self->suspend.load() > 0) {
+            lock.unlock();
+            SuspendPoint();
+            lock.lock();
+            continue;
+        }
         if (wait_all) {
             bool all = std::all_of(objs.begin(), objs.end(), [&](const ObjectRef& o) { return o && Satisfied(*o, me); });
             if (all) {

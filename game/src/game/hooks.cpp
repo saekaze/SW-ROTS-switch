@@ -57,3 +57,113 @@ X86_FUNC(sub_0051EA12) {
     if (!s.exchange(true)) LOGW("dsound: B0080 at 0051EA12 runs its original code");
     __imp__sub_0051EA12(ctx, base);
 }
+
+// ROTS: the movies' YUV to RGB conversion (CRI Sofdec, 004C0F80), natively. Movies fell further behind their sound
+// on the Switch; sampled on the PC this one function is half of the decoder's busy time. The original is MMX: per
+// pixel three lookups in a 16 bit table (Y at +0, U at +0x800, V at +0x1000, four lanes of 16 bit each), added with
+// wrap, shifted right arithmetically by 6, saturated to bytes (packuswb) and stored as one 32 bit pixel. 4:2:0: each
+// chroma pair covers 2x2 pixels; two output rows a pass, 8 chroma samples (16 pixels) a step, do-while loops as the
+// original (cdecl: src planes struct, dst struct, table, second row offset, row pair advance).
+//   src: +0 Y, +4 U, +8 V, +0xC Y pitch, +0x10 U pitch, +0x14 V pitch;  dst: +0 pixels, +4 width, +8 height
+// ROTS_YUV=original keeps the translated code; ROTS_YUV=verify (the harness) runs both and logs any difference.
+#include <chrono>
+#include <cstdlib>
+#include <cstring>
+#include <vector>
+
+X86_EXTERN_FUNC(__imp__sub_004C0F80);
+
+namespace {
+struct YuvWrite {
+    uint32_t va, value;
+};
+
+template <class Store>
+void YuvToRgb(uint32_t src, uint32_t dsts, uint32_t tab, uint32_t row1, uint32_t adv, Store&& store, int32_t& last_c) {
+    using kernel::R32;
+    const uint8_t* mem = static_cast<const uint8_t*>(kernel::HostPtr(0));
+    uint32_t y0 = R32(src), u = R32(src + 4), v = R32(src + 8);
+    const uint32_t py = R32(src + 0xC), pu = R32(src + 0x10), pv = R32(src + 0x14);
+    uint32_t d0 = R32(dsts), d1 = d0 + row1;
+    const int32_t w2 = int32_t(R32(dsts + 4)) / 2;
+    int32_t h2 = int32_t(R32(dsts + 8)) / 2;
+    uint32_t y1 = y0 + py;
+    auto lanes = [&](uint32_t va, uint16_t out[4]) { std::memcpy(out, mem + va, 8); };
+    auto pixel = [&](const uint16_t c[4], uint32_t ty) {
+        uint16_t t[4];
+        lanes(ty, t);
+        uint32_t px = 0;
+        for (int k = 0; k < 4; k++) {
+            int32_t s = int16_t(uint16_t(c[k] + t[k])) >> 6;
+            px |= uint32_t(s < 0 ? 0 : s > 255 ? 255 : s) << (8 * k);
+        }
+        return px;
+    };
+    do {
+        int32_t c = 0;
+        do {
+            for (int j = 0; j < 8; j++) {
+                uint16_t tu[4], tv[4], ch[4];
+                lanes(tab + 0x800 + mem[u + uint32_t(c + j)] * 8u, tu);
+                lanes(tab + 0x1000 + mem[v + uint32_t(c + j)] * 8u, tv);
+                for (int k = 0; k < 4; k++) ch[k] = uint16_t(tu[k] + tv[k]);
+                for (uint32_t p = 0; p < 2; p++) {
+                    uint32_t x = 2u * uint32_t(c + j) + p;
+                    store(d0 + x * 4, pixel(ch, tab + mem[y0 + x] * 8u));
+                    store(d1 + x * 4, pixel(ch, tab + mem[y1 + x] * 8u));
+                }
+            }
+            c += 8;
+        } while (c < w2);
+        last_c = c;
+        y0 += 2 * py;
+        y1 += 2 * py;
+        v += pv;
+        u += pu;
+        d0 += adv;
+        d1 += adv;
+    } while (--h2 != 0);
+}
+}  // namespace
+
+X86_FUNC(sub_004C0F80) {
+    static const int mode = [] {
+        const char* e = std::getenv("ROTS_YUV");
+        return !e ? 0 : !std::strcmp(e, "original") ? 1 : !std::strcmp(e, "verify") ? 2 : 0;
+    }();
+    if (mode == 1) return __imp__sub_004C0F80(ctx, base);
+    using kernel::R32;
+    const uint32_t esp = ctx.esp;
+    const uint32_t src = R32(esp + 4), dsts = R32(esp + 8), tab = R32(esp + 12), row1 = R32(esp + 16), adv = R32(esp + 20);
+    int32_t last_c = 0;
+    if (mode == 2) {
+        // both, the original last (it writes guest memory and returns itself); then compare
+        std::vector<YuvWrite> mine;
+        mine.reserve(320000);
+        auto t0 = std::chrono::steady_clock::now();
+        YuvToRgb(src, dsts, tab, row1, adv, [&](uint32_t va, uint32_t px) { mine.push_back({va, px}); }, last_c);
+        auto t1 = std::chrono::steady_clock::now();
+        __imp__sub_004C0F80(ctx, base);
+        auto t2 = std::chrono::steady_clock::now();
+        static double ns_native = 0, ns_orig = 0;
+        ns_native += std::chrono::duration<double, std::nano>(t1 - t0).count();
+        ns_orig += std::chrono::duration<double, std::nano>(t2 - t1).count();
+        static int calls = 0, bad_calls = 0;
+        size_t bad = 0;
+        for (const YuvWrite& m : mine) bad += R32(m.va) != m.value;
+        calls++;
+        if (bad) bad_calls++;
+        if (bad || calls % 250 == 1)
+            LOGR("yuv verify: call %d, %zu pixels, %zu differ (%d calls with differences so far); native %.2f ms, "
+                 "translated %.2f ms a call", calls, mine.size(), bad, bad_calls, ns_native / calls / 1e6,
+                 ns_orig / calls / 1e6);
+        return;
+    }
+    kernel::W32(0x65C890, 0x60D594);  // 004C1B30, called first: keeps its argument in a global
+    YuvToRgb(src, dsts, tab, row1, adv, [&](uint32_t va, uint32_t px) { kernel::W32(va, px); }, last_c);
+    // as the original leaves them: eax the row counter (0), ecx the last column, edx the byte mask; ret (cdecl)
+    ctx.eax = 0;
+    ctx.ecx = uint32_t(last_c);
+    ctx.edx = 0xFF;
+    ctx.esp += 4;
+}

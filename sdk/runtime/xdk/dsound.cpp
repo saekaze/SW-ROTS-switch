@@ -804,12 +804,32 @@ BUFFER(Play, 4) {
     v.sync = a[3] & 4;
     return 0;
 }
+// ROTS: a voice stopped with more than 0.3 s of its sound still to play goes to the log (cut off dialogue in the
+// in-game cutscenes, Switch, 2026-11-16): the title stopping it early, or the port
+static void NoteEarlyStop(const Voice& v, const char* how) {
+    if (!v.playing || v.looping) return;
+    double rate = v.freq ? v.freq : v.rate;
+    if (rate <= 0) return;
+    double left = (double(FramesOf(v, v.play_len)) - v.pos) / rate;
+    static std::atomic<int> shown{0};
+    if (left > 0.3 && shown.fetch_add(1) < 64)
+        LOGR("dsound: %08X stopped by %s with %.1f s of %.1f s still to play", v.obj, how, left,
+             FramesOf(v, v.play_len) / rate);
+}
 BUFFER(Stop, 1) {
+    NoteEarlyStop(v, "Stop");
     v.playing = false;
     return 0;
 }
-// (this, time low, time high, flags): stops now, the release envelope is not reproduced
+// (this, time low, time high, flags). ROTS: DSBSTOPEX_RELEASEWAVEFORM (2) leaves the loop and lets the sound play to
+// its end, as the XDK does; it stopped at once before, cutting off what was meant to finish. The envelope's release
+// (DSBSTOPEX_ENVELOPE, 1) alone still stops now: the port has no envelopes
 BUFFER(StopEx, 4) {
+    if (a[3] & 2) {
+        v.looping = false;
+        return 0;
+    }
+    NoteEarlyStop(v, "StopEx");
     v.playing = false;
     return 0;
 }
