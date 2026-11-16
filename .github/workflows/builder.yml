@@ -1,0 +1,45 @@
+# Builds ROTS-Switch-Builder.exe from tools/windows/ and attaches it to a GitHub release, whenever a version tag
+# (v0.2.0, v0.3.0, ...) is pushed. The exe holds no game code: it builds the port on the user's own PC from their
+# own disc, with the source of the same tag.
+name: Windows builder
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  exe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: MinGW-w64
+        run: sudo apt-get update -q && sudo apt-get install -y -q mingw-w64
+
+      - name: Build the exe
+        run: bash tools/windows/build_exe.sh "${GITHUB_REF_NAME}" out
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<EOF
+          **ROTS-Switch-Builder.exe** builds the Switch version from your own copy of the game, on your own PC.
+
+          1. Download ROTS-Switch-Builder.exe and run it (Windows 10 2004 or newer, or 11; about 12 GB free on C:).
+          2. Drag your disc image (.iso) or extracted disc folder into its window and press Enter.
+          3. Optionally drag a picture for the icon (any JPG or PNG; it is made 256x256), or press Enter for the game's own.
+          4. Wait 20 to 40 minutes the first time. Then copy the ROTS-for-Switch\\switch folder next to the exe to the
+             root of your SD card.
+
+          The first run sets up WSL (Windows' own Linux) if needed, which may ask for a restart; run the builder again
+          after it. Windows SmartScreen may warn about an unknown publisher: More info, Run anyway. The exe is built
+          by this workflow from tools/windows/ of this tag; it contains no game code and uploads nothing.
+          EOF
+          gh release create "${GITHUB_REF_NAME}" out/ROTS-Switch-Builder.exe \
+            --title "Revenge of the Sith for Switch ${GITHUB_REF_NAME}" --notes-file notes.md

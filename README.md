@@ -34,10 +34,28 @@ There is no download of the game program here: like the NFS Underground ports, *
 the game**. The program is made of the game's own code, translated, so it is only ever made on your computer, from
 your disc. It is one command.
 
+### Easiest: the Windows builder
+
+1. Download **ROTS-Switch-Builder.exe** from [Releases](https://github.com/saekaze/SW-ROTS-switch/releases) and run it
+   (Windows 10 2004 or newer, or 11; about 12 GB free on C:, an internet connection).
+2. Drag your disc image (`.iso`, trimmed or a full dump) or your extracted disc folder into its window, press Enter.
+3. Optional: drag any picture (JPG or PNG) for the homebrew menu icon. It is cut to a square and made 256x256. Or
+   press Enter for the game's own picture.
+4. Wait: 20 to 40 minutes the first time (downloads and compiling), a few minutes for a new version later.
+5. Copy the `switch` folder from `ROTS-for-Switch` (next to the exe) to the root of your SD card.
+
+The first time, it sets up WSL (Microsoft's Linux for Windows) if the PC does not have it yet; that can need a
+restart, then run the builder again. It builds in its own Linux (`rots-builder`, about 8 GB, kept so the next version
+builds quickly; `wsl --unregister rots-builder` removes it). Windows SmartScreen may warn about an unknown publisher:
+More info, Run anyway. The exe is built by this repository's workflow from `tools/windows/`, contains no game code and
+uploads nothing.
+
+### By hand (Linux or WSL2)
+
 You need a Switch with custom firmware (Atmosphere), your own copy of the game, and a Linux PC or Windows with WSL2.
 
-1. Extract your disc image with [extract-xiso](https://github.com/XboxDev/extract-xiso):
-   `extract-xiso -x "Star Wars Episode III.iso"`
+1. Extract your disc image: `python3 tools/xiso_extract.py "Star Wars Episode III.iso" disc` (after step 3's
+   clone), or with [extract-xiso](https://github.com/XboxDev/extract-xiso).
 2. Install the tools (Ubuntu / WSL2):
    ```sh
    sudo apt install clang cmake ninja-build python3-pil git
@@ -54,11 +72,12 @@ You need a Switch with custom firmware (Atmosphere), your own copy of the game, 
 4. Copy `out/switch_sd/switch` to the root of your SD card. You get `sdmc:/switch/rots/rots.nro`,
    `rots-settings.toml` and, with `--copy-game`, the game files in `sdmc:/switch/rots/game/` (about 2.4 GB).
 5. Hold **R** while opening any installed game to get the homebrew menu with full memory (title takeover), then start
-   **Star Wars Episode III (Xbox recomp)**. The album applet does not have enough memory.
+   **Star Wars Episode III (Xbox recomp)**. The album applet does not have enough memory. Press **+** during a movie
+   to skip it.
 
 The PAL release (Europe, title ID 4C410017) is the one it was made with; others with the same title ID are tried.
 
-**The icon** is made from your own `default.xbe` too (the dashboard picture the game carries: Obi-Wan and Anakin
+**The icon** is made from your own `default.xbe` too (or from your picture, with the Windows builder) (the dashboard picture the game carries: Obi-Wan and Anakin
 dueling), so the build needs no artwork from anywhere. Want another picture? Put any 256x256 JPEG at
 `switch/icon.jpg` before building and it is used instead.
 
