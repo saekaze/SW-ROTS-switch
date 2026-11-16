@@ -2,7 +2,9 @@
 // SCRIPT file: lines of "frame buttons [frames held]", held 8 frames by default, # comments; buttons joined by +:
 // UP DOWN LEFT RIGHT START BACK A B X Y LT RT LS LSD LSL LSR (left stick up, down, left, right)
 // cmd in the run folder: "buttons [frames held]" pressed once from the frame it is read, then removed
+#include <chrono>
 #include <cstdio>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -84,6 +86,32 @@ Pad Poll(int port) {
         // ROTS: skipmovie in the run folder ends the movie playing, as + does on the Switch
         std::string skip = (app::ExeDir() / "skipmovie").string();
         if (std::remove(skip.c_str()) == 0) kernel::SkipMovie();
+        // describe in the run folder, or no frame for 8 s: every title thread's wait and recent calls into the log,
+        // as the Switch's freeze watchdog does (its own thread: a frozen title thread no longer reads the pad)
+        static const bool watchdog = [] {
+            std::thread([] {
+                uint64_t last = 0;
+                int still = 0;
+                bool told = false;
+                std::string describe = (app::ExeDir() / "describe").string();
+                for (;;) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                    uint64_t f = harness::g_frames.load();
+                    still = f == last ? still + 1 : 0;
+                    last = f;
+                    bool asked = std::remove(describe.c_str()) == 0;
+                    if (still == 0) told = false;
+                    if (asked || (still >= 16 && !told && f > 600)) {
+                        told = told || !asked;
+                        LOGR("describe: %s", asked ? "asked" : "no frame for 8 s");
+                        for (const std::string& line : kernel::DescribeThreads()) LOGR("describe: %s", line.c_str());
+                        logx::Flush();
+                    }
+                }
+            }).detach();
+            return true;
+        }();
+        (void)watchdog;
         for (const Press& s : script)
             if (t >= s.at && t <= s.at + s.len) Apply(s.buttons, p);
         if (live.at >= 0 && t >= live.at && t <= live.at + live.len) Apply(live.buttons, p);

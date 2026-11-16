@@ -100,6 +100,7 @@ inline uint32_t Call(X86Context& ctx, uint32_t fn, const Map& m, std::initialize
     X86_FUNC(guest) {                                    \
         (void)base;                                      \
         ::kernel::RebootPoint();                         \
+        ::kernel::NoteCall(#fn);                         \
         A args{ctx};                                     \
         uint32_t r = fn(ctx, args);                      \
         ::kernel::Return(ctx, r, pops);                  \

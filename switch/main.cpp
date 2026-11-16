@@ -138,7 +138,7 @@ toml::table Table() {
 // the Switch starts at the console's own pace: 30 frames a second, vsync on, the frame at the screen's height
 Settings DefaultSettings() {
     Settings s;
-    s.render_percent = 75;  // ROTS: 540p handheld, room for 60 fps at stock GPU clocks
+    s.render_percent = 100;  // ROTS: 720p handheld; at the game's 30 fps the GPU has room for it at stock clocks
     s.fps_cap = 60;
     s.vsync = true;
     s.xbox_720p = false;  // stock 480 Xbox until 720p is tried on this title

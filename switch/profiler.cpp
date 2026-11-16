@@ -16,6 +16,7 @@
 #include "app/app.h"
 #include "core/log.h"
 #include "host.h"
+#include "kernel/kernel.h"
 
 // the NRO's load address: _start is the first instruction, ELF address 0
 extern "C" void _start(void);
@@ -161,13 +162,16 @@ void DumpThreads(const char* why) {
     // all contexts first, then the log: a paused thread may hold the log's lock
     struct Ctx {
         bool ok;
+        uint32_t rc;
         uint64_t pc, lr, ret[24];
         int depth;
     };
     static Ctx c[kMaxThreads];
     for (int i = 0; i < n; i++) {
         c[i] = {};
-        if (R_FAILED(svcSetThreadActivity(h[i], ThreadActivity_Paused))) continue;
+        Result pr = svcSetThreadActivity(h[i], ThreadActivity_Paused);
+        c[i].rc = pr;
+        if (R_FAILED(pr)) continue;
         ThreadContext ctx;
         if (R_SUCCEEDED(svcGetThreadContext3(&ctx, h[i]))) {
             c[i].ok = true;
@@ -188,6 +192,13 @@ void DumpThreads(const char* why) {
         svcSetThreadActivity(h[i], ThreadActivity_Runnable);
     }
     LOGR("stall: %s; NRO base %p, offsets below are into rots.nro", why, reinterpret_cast<void*>(&_start));
+    // the threads that could not be paused: ended ones (their handle is gone), or not pausable
+    std::string gone;
+    for (int i = 0; i < n; i++)
+        if (!c[i].ok) gone += std::string(gone.empty() ? "" : ", ") + names[i] + " (" + std::to_string(c[i].rc & 0x3FFFFF) + ")";
+    if (!gone.empty()) LOGR("stall: not paused: %s", gone.c_str());
+    // the title's threads as the kernel sees them: what each waits for, a critical section's owner
+    for (const std::string& line : kernel::DescribeThreads()) LOGR("stall: %s", line.c_str());
     for (int i = 0; i < n; i++) {
         if (!c[i].ok) continue;
         char line[512];

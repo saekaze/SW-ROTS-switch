@@ -152,7 +152,9 @@ KERNEL_EXPORT(277, RtlEnterCriticalSection, 1) {
         return 0;
     }
     ObjectRef ev = FromPointer(cs);
+    Current()->wait_cs = cs;  // ROTS: the freeze watchdog names its owner
     Wait({ev}, false, INT64_MAX, false);
+    Current()->wait_cs = 0;
     W32(cs + 0x18, me);
     W32(cs + 0x14, 1);
     return 0;

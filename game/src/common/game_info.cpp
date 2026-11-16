@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdlib>
 #include <cctype>
 #include <string>
 #include <vector>
@@ -17,12 +18,15 @@ bool g_invert_x = false, g_invert_y = false, g_fps_counter = false;
 uint32_t g_stick_response = 0;  // left stick left/right: 0 linear, 1 gentle, 2 gentler (Mark, 2026-11-13: Sonic felt touchy)
 void ScriptPad(int port, input::Pad& pad);  // pad_script.cpp
 // ROTS: the game's own frame cap (fpsLimit in d:\vars_xbox.cfg, 30 on the disc): 60 or 30
-uint32_t g_game_fps = 60;
+uint32_t g_game_fps = 30;  // ROTS: as on the Xbox by default; 60 only by choice (the user, 2026-11-16)
 void PatchFile(const std::string& path, std::vector<uint8_t>& b) {
     std::string lower = path;
     for (char& c : lower) c = char(std::tolower(uint8_t(c)));
     if (lower.size() < 13 || lower.compare(lower.size() - 13, 13, "vars_xbox.cfg") != 0) return;
-    const std::string from = "fpsLimit=30", to = g_game_fps >= 60 ? "fpsLimit=60" : "fpsLimit=30";
+    // GAME_FPS in the environment (the PC harness, which reads no settings file) overrides game_fps
+    uint32_t fps = g_game_fps;
+    if (const char* e = std::getenv("GAME_FPS")) fps = uint32_t(std::atoi(e));
+    const std::string from = "fpsLimit=30", to = fps >= 60 ? "fpsLimit=60" : "fpsLimit=30";
     auto it = std::search(b.begin(), b.end(), from.begin(), from.end());
     if (it != b.end()) std::copy(to.begin(), to.end(), it);
 }

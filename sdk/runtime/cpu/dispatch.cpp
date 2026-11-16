@@ -107,6 +107,7 @@ void x86_resume(X86Context& ctx, uint8_t* base, const X86Resume& r) {
 
 void x86_kernel(X86Context& ctx, uint8_t* base, uint32_t ordinal) {
     kernel::RebootPoint();
+    kernel::NoteCall(kernel::ExportName(ordinal));
     if (ordinal < 400 && g_exports[ordinal].fn) {
         g_exports[ordinal].fn(ctx, base);
         return;

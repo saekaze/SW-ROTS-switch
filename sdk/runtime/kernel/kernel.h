@@ -163,6 +163,18 @@ struct Thread : Object {
     std::condition_variable resume_cv;
     X86Context* ctx = nullptr;
     bool guest = false;  // ROTS: a title thread (StartThread), ended by a soft reboot
+    // ROTS: the last kernel exports and HLE functions this thread called, for the log when it ends (a Switch freeze
+    // in mission 1 was the title's own threads gone, with nothing in the log)
+    std::array<const char*, 16> recent{};
+    uint32_t recent_n = 0;
+    uint32_t start_routine = 0;
+    void Note(const char* what) { recent[recent_n++ & 15] = what; }
+    // ROTS: what it waits for now (for the freeze watchdog): up to 4 objects (type, guest body), the critical
+    // section it waits to enter, and whether it waits at all
+    std::atomic<int> waiting{0};
+    std::array<uint32_t, 4> wait_obj{}, wait_type{};
+    uint32_t wait_n = 0, wait_cs = 0;
+    int64_t wait_timeout = 0;
     Thread() : Object(ObjType::Thread) {}
 };
 
@@ -238,6 +250,12 @@ void RegisterExport(uint32_t ordinal, const char* name, KernelFn fn);
 uint32_t RegisterData(uint32_t ordinal, const char* name, uint32_t size);  // allocates kernel data, returns address
 uint32_t DataAddress(uint32_t ordinal);
 const char* ExportName(uint32_t ordinal);
+// ROTS: the calling title thread notes a call (kernel export or HLE) in its recent list
+void NoteCall(const char* what);
+// ROTS: the recent calls of a thread, oldest first, as one line
+std::string RecentCalls(const Thread& t);
+// ROTS: every title thread: what it waits for (and a critical section's owner), and its recent calls, one line each
+std::vector<std::string> DescribeThreads();
 bool HasExport(uint32_t ordinal);       // implemented as a function or data
 const char* OrdinalName(uint32_t ordinal);  // public name, "?" past the table
 

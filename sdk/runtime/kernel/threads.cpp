@@ -187,6 +187,54 @@ void Spawn(std::function<void()> fn) {
 }  // namespace
 
 Thread* Current() { return t_current.get(); }
+
+void NoteCall(const char* what) {
+    if (Thread* t = t_current.get()) t->Note(what);
+}
+
+std::vector<std::string> DescribeThreads() {
+    std::vector<std::string> out;
+    std::vector<ThreadRef> all;
+    {
+        std::lock_guard<std::mutex> lock(g_threads_lock);
+        all = g_threads;
+    }
+    auto by_ethread = [&](uint32_t e) -> uint32_t {
+        for (auto& t : all)
+            if (t && t->ethread == e) return t->id;
+        return 0;
+    };
+    for (auto& t : all) {
+        if (!t || !t->guest) continue;
+        char b[512];
+        int at = std::snprintf(b, sizeof b, "thread %X (from %08X): ", t->id, t->start_routine);
+        if (!t->waiting.load(std::memory_order_acquire)) {
+            at += std::snprintf(b + at, sizeof b - size_t(at), "running");
+        } else if (uint32_t cs = t->wait_cs) {
+            uint32_t owner = R32(cs + 0x18);
+            at += std::snprintf(b + at, sizeof b - size_t(at),
+                                "waits to enter critical section %08X, owned by thread %X (ethread %08X, recursion %u, "
+                                "lock count %d)",
+                                cs, by_ethread(owner), owner, R32(cs + 0x14), int32_t(R32(cs + 0x10)));
+        } else {
+            at += std::snprintf(b + at, sizeof b - size_t(at), "waits%s for", t->wait_timeout == INT64_MAX ? "" : " (timed)");
+            for (uint32_t i = 0; i < t->wait_n && at < (int)sizeof b - 32; i++)
+                at += std::snprintf(b + at, sizeof b - size_t(at), " %u:%08X", t->wait_type[i], t->wait_obj[i]);
+        }
+        out.push_back(std::string(b) + "; last calls: " + RecentCalls(*t));
+    }
+    return out;
+}
+
+std::string RecentCalls(const Thread& t) {
+    std::string out;
+    uint32_t n = t.recent_n, first = n > 16 ? n - 16 : 0;
+    for (uint32_t i = first; i < n; i++) {
+        if (!out.empty()) out += ", ";
+        out += t.recent[i & 15] ? t.recent[i & 15] : "?";
+    }
+    return out.empty() ? "none" : out;
+}
 ThreadRef CurrentRef() { return t_current; }
 X86Context& CurrentContext() { return *t_current->ctx; }
 
@@ -255,6 +303,7 @@ void StartThread(ThreadRef t) {
             si = g_start[t.get()];
             g_start.erase(t.get());
         }
+        t->start_routine = si.start_routine;
         try {
             RebootPoint();
             LOGI("thread %X starts at %08X (%08X, %08X)", t->id, si.system_routine ? si.system_routine : si.start_routine,
@@ -264,10 +313,19 @@ void StartThread(ThreadRef t) {
                 code = CallGuest(ctx, si.system_routine, {si.start_routine, si.start_context});
             else
                 code = CallGuest(ctx, si.start_routine, {si.start_context});
-            LOGI("thread %X returned %08X", t->id, code);
+            // ROTS: report level, so the Switch's log has it: a title thread that ends outside a reboot
+            LOGR("threads: title thread %X (from %08X) returned %08X; its last calls: %s", t->id,
+                 si.system_routine ? si.start_routine : si.start_routine, code, RecentCalls(*t).c_str());
             MarkExited(*t, code);
         } catch (const GuestReboot&) {
             LOGI("thread %X ends for the reboot", t->id);
+        } catch (const SpawnExit&) {
+            throw;
+        } catch (...) {
+            LOGR("threads: title thread %X (from %08X) ended by an exception; its last calls: %s", t->id,
+                 si.start_routine, RecentCalls(*t).c_str());
+            logx::Flush();
+            throw;
         }
         Unregister(t.get());
         t_current.reset();
@@ -397,7 +455,8 @@ void StartHostThread(const char* name, std::function<void(X86Context&)> fn) {
 void ExitThread(uint32_t code) {
     Thread* t = Current();
     if (t) {
-        LOGI("thread %X exits with %08X", t->id, code);
+        LOGR("threads: title thread %X (from %08X) exits with %08X; its last calls: %s", t->id, t->start_routine, code,
+             RecentCalls(*t).c_str());
         MarkExited(*t, code);
         Unregister(t);
     }

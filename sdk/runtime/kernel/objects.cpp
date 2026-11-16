@@ -234,7 +234,24 @@ static uint32_t WaitFor(const std::vector<ObjectRef>& objs, bool wait_all, int64
 
 uint32_t Wait(const std::vector<ObjectRef>& objs, bool wait_all, int64_t timeout, bool alertable) {
     SuspendPoint();
-    uint32_t r = WaitFor(objs, wait_all, timeout, alertable);
+    Thread* me = Current();
+    if (me) {
+        me->wait_n = uint32_t(std::min<size_t>(objs.size(), 4));
+        for (uint32_t i = 0; i < me->wait_n; i++) {
+            me->wait_obj[i] = objs[i] ? objs[i]->guest : 0;
+            me->wait_type[i] = objs[i] ? uint32_t(objs[i]->type) : 0;
+        }
+        me->wait_timeout = timeout;
+        me->waiting.store(1, std::memory_order_release);
+    }
+    uint32_t r;
+    try {
+        r = WaitFor(objs, wait_all, timeout, alertable);
+    } catch (...) {
+        if (me) me->waiting.store(0, std::memory_order_release);
+        throw;
+    }
+    if (me) me->waiting.store(0, std::memory_order_release);
     SuspendPoint();
     return r;
 }

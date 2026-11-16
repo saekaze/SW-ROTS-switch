@@ -4,9 +4,8 @@
 # (1280x720 handheld, 1920x1080 docked).
 
 # Internal resolution in % of the screen's height (100 = native: 720p handheld, 1.5x the Xbox's 480 lines).
-# 75 (default) is 540p handheld, already above the Xbox, and leaves the GPU room for 60 fps at stock clocks.
-# Docked, or with a GPU overclock, try 100. 67 is exactly the Xbox's resolution in handheld.
-render_percent = 75
+# 100 (default) fits the GPU at stock clocks at the game's 30 fps. With game_fps = 60 in handheld, try 75 (540p).
+render_percent = 100
 
 # Frame rate cap (0 = none). 60 by default.
 # The log writes the real frame rate every 10 s ("perf:" lines).
@@ -103,9 +102,9 @@ fps_counter = false
 music_volume = 100
 effects_volume = 100
 
-# ROTS: the game's own frame cap. 60 (default) or 30 (as on the Xbox). The game times its gameplay by the clock,
-# so 60 should only be smoother; if anything plays too fast, set 30.
-game_fps = 60
+# The game's own frame cap: 30 (default, as on the Xbox) or 60. 60 is smoother but experimental: the game may time
+# some things by frames (in-game cutscenes can run ahead of their dialogue), so keep 30 unless you are testing.
+game_fps = 30
 
 # Press + during a movie (cutscene video) and it skips the movie.
 # CPU clock while a movie (cutscene video) plays, in MHz; 0 = off. The movies are decoded by the game's own code,

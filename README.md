@@ -89,9 +89,9 @@ dueling), so the build needs no artwork from anywhere. Want another picture? Put
 
 ### Frame rate
 
-The game itself caps at 30 fps (`fpsLimit=30` in its `vars_xbox.cfg`). The port raises that to 60 as the file is
-read (`game_fps = 60` in the settings; set 30 to play as on the Xbox). Your disc files are not changed. The internal
-resolution defaults to 75 % of the screen (540p handheld) so the GPU keeps up at stock clocks; docked, try 100.
+The game runs at 30 fps, as on the Xbox. `game_fps = 60` in the settings raises the game's own cap (in its
+`vars_xbox.cfg`, changed as the file is read; your disc files stay as they are), but it is experimental: some
+in-game cutscenes seem to run ahead of their dialogue at 60.
 
 ## Reporting problems
 
