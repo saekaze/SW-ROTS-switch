@@ -1932,11 +1932,17 @@ void DekoBackend::ClearTarget(Target& t, const State& s, uint32_t count, const u
         if (LatchCpuWrite(t)) UploadTarget(t, s.rt);
         float c[4];
         Color(color, c);
+        // ROTS: only the channels asked for (D3DCLEAR_TARGET_R 0x10, G 0x20, B 0x40, A 0x80). Revenge of the Sith
+        // clears the alpha alone after drawing the whole scene, to mask its heat haze: cleared as RGBA, the finished
+        // picture went black under the HUD whenever a haze source was on screen (Switch, 2026-11-16)
+        uint32_t mask = (flags & 0x10 ? DkColorMask_R : 0) | (flags & 0x20 ? DkColorMask_G : 0) |
+                        (flags & 0x40 ? DkColorMask_B : 0) | (flags & 0x80 ? DkColorMask_A : 0);
+        if (!mask) return;
         BeginRender(&t.img, nullptr);
         Barrier();
         for (const R& r : rs) {
             SetScissor(r.l, r.t, r.r, r.b);
-            dkCmdBufClearColorFloat(Cb(), 0, DkColorMask_RGBA, c[0], c[1], c[2], c[3]);
+            dkCmdBufClearColorFloat(Cb(), 0, mask, c[0], c[1], c[2], c[3]);
         }
     }
 }

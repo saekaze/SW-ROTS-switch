@@ -30,6 +30,9 @@ public:
     }
     void Clear(const State& s, uint32_t n, const uint8_t* rects, uint32_t flags, uint32_t color, float z, uint32_t stencil) override {
         if (drawing_) reference::Clear(s, n, rects, flags, color, z, stencil);
+        if (list_)
+            std::fprintf(list_, "CLEAR rects=%u flags=%X color=%08X z=%g stencil=%X rt=%08X zs=%08X\n", n, flags, color, z,
+                         stencil, s.rt.data, s.zs.data);
     }
     void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices) override {
         draws_++;
@@ -117,6 +120,7 @@ private:
         const auto& t0 = s.tss[0];
         TextureDesc d;
         if (s.textures[0] && Describe(s.textures[0], d))
+            std::fprintf(f, "  tex data %08X (phys %08X) pitch %u linear %u\n", d.data, s.rt.data, d.pitch, d.linear ? 1 : 0),
             std::fprintf(f, "  tex %ux%u fmt %X cop %u %X %X aop %u %X %X\n", d.width, d.height, d.format, t0[kTssColorOp],
                          t0[kTssColorArg1], t0[kTssColorArg2], t0[kTssAlphaOp], t0[kTssAlphaArg1], t0[kTssAlphaArg2]);
         std::fprintf(f, "  ttf %X tci %X addr %u %u t16", t0[kTssTextureTransformFlags], t0[kTssTexCoordIndex], t0[kTssAddressU],

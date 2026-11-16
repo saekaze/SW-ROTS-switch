@@ -23,7 +23,6 @@ Switch at 60 fps on stock clocks.
 | Sound (DirectSound at the API level) | Works |
 | Movies (CRI Sofdec FMV: intro, crawl, cutscenes) | Work (the CPU is raised to 1785 MHz while one plays, so they keep up with their sound) |
 | Switch build | Runs on the console (deko3d), 60 fps cap |
-| Known issue | The picture may go darker in mission 1 once you walk away from the start (being looked at) |
 | Missions past the first | Untested |
 
 Tested so far on PC (Linux, headless): title, Start, the self-reboot, crawl, intro, mission 1 gameplay, pause,
@@ -123,6 +122,8 @@ On top of the toolchain it is built on:
   four DirectSound 3D calls on streams (cone and distance parameters) answered by the port: the library's own code
   wrote into objects the port's streams do not have and crashed a few minutes into a mission;
   `D3DDevice_Release` returning 0 (the game releases the device in a loop).
+- deko3d clears only the colour channels the game asks for: the game clears the alpha alone after the whole scene
+  to mask its heat haze, and clearing all four channels turned the screen black under the HUD.
 - The Switch build without a Vulkan driver (deko3d only), RotS paths and title checks.
 
 ## To do

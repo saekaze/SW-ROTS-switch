@@ -112,6 +112,5 @@ game_fps = 60
 # plays them at full speed; the clock goes back as soon as the movie ends. The log shows "clocks: movie playing".
 movie_boost_mhz = 1785
 
-# Character shadows (the game's stencil shadows). true (default) as on the Xbox; false leaves them out. If the
-# picture goes dark when you walk away from where a level starts, set false and report whether that cured it.
+# Character shadows (the game's stencil shadows). true (default) as on the Xbox; false leaves them out.
 shadows = true
