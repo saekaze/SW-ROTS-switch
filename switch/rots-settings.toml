@@ -4,8 +4,9 @@
 # (1280x720 handheld, 1920x1080 docked).
 
 # Internal resolution in % of the screen's height (100 = native: 720p handheld, 1.5x the Xbox's 480 lines).
-# 100 (default) fits the GPU at stock clocks at the game's 30 fps. With game_fps = 60 in handheld, try 75 (540p).
-render_percent = 100
+# 75 (default) is 540p handheld, above the Xbox's own: at 720p the heavier scenes and cutscenes needed 23 ms of GPU a
+# frame at the handheld's 307 MHz, and lagged. Docked, or with a GPU overclock, try 100.
+render_percent = 75
 
 # Frame rate cap (0 = none). 60 by default.
 # The log writes the real frame rate every 10 s ("perf:" lines).

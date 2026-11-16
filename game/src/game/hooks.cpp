@@ -178,3 +178,73 @@ X86_FUNC(sub_0051D760) {
     ctx.eax = xdk::DsSampleTime();
     ctx.esp += 4;  // ret
 }
+
+// ROTS: the dialogue player's per-frame poll (00078EB0, thiscall on its line slot): the slot's first field is the line's
+// file media object (XFileCreateMediaObjectAsync, B00A9; vtable 0060B83C); the poll calls its method 9 (DoWork,
+// 005270F8), then 00078DF0 hands its packets on through the same object. A slot left with a freed object (see the start
+// hook below) is skipped instead of calling into freed memory, and logged: a backstop for any other such path.
+X86_EXTERN_FUNC(__imp__sub_00078EB0);
+X86_FUNC(sub_00078EB0) {
+    const uint32_t line = ctx.ecx;
+    const uint32_t media = line ? kernel::R32(line) : 0;
+    const uint32_t vtable = media ? kernel::R32(media) : 0;
+    if (vtable != 0x60B83Cu) {
+        static int shown = 0;
+        if (shown++ < 16)
+            LOGR("dialogue: line %08X has no live media object (%08X, vtable %08X); its poll is skipped", line, media,
+                 vtable);
+        ctx.esp += 4;  // ret
+        return;
+    }
+    __imp__sub_00078EB0(ctx, base);
+}
+
+// ROTS: the dialogue player's start (00077110, thiscall, 6 arguments, the first the result it writes). It takes a line
+// slot (00078FD0, kept at +E0), then streams from the game's own pool of DirectSound streams (00078B90; the pool at
+// 0068CC80: used +4, free +8, peak +C, entries +10, count +14). When the pool has no free stream (0xFFFFFFE2) the
+// 2-stream path (0007767C) returns without giving the slot back and without opening the line's media object, so the
+// slot keeps the object of the line that played in it before, freed since by the release thread (00079160). The
+// per-frame poll (00079C60 -> 00078EB0) then called a freed object: the crash at 00078EBB on the Switch, 2026-11-16.
+// Every other failure path of the function frees the slot and clears the player (000772C4); this does the same.
+X86_EXTERN_FUNC(__imp__sub_00077110);
+X86_EXTERN_FUNC(sub_00079090);
+X86_FUNC(sub_00077110) {
+    const uint32_t player = ctx.ecx;
+    const uint32_t result = kernel::R32(ctx.esp + 4);
+    static const uint32_t cap = [] {  // test knob: ROTS_DIALOGUE_STREAMS=n shrinks the pool to provoke the failure
+        const char* e = std::getenv("ROTS_DIALOGUE_STREAMS");
+        return e ? uint32_t(std::atoi(e)) : 0u;
+    }();
+    if (cap && kernel::R32(0x68CC94) > cap) kernel::W32(0x68CC94, cap);
+    static int traced = 0;
+    if (cap && traced++ < 40)
+        LOGR("dialogue: start (player %08X) with %u of %u streams in use", player, kernel::R32(0x68CC84),
+             kernel::R32(0x68CC94));
+    __imp__sub_00077110(ctx, base);
+    static uint32_t peak = 0;  // the pool's peak (+C) logged as it grows: a leak shows as a climb to the count
+    if (kernel::R32(0x68CC8C) > peak) {
+        peak = kernel::R32(0x68CC8C);
+        if (peak >= 6) LOGR("dialogue: up to %u of %u streams in use", peak, kernel::R32(0x68CC94));
+    }
+    const uint32_t err = kernel::R32(result);
+    const uint32_t line = kernel::R32(player + 0xE0);
+    if (!err || !line) return;
+    static int shown = 0;
+    if (shown++ < 16)
+        LOGR("dialogue: a line could not start (%08X) with %u of %u streams in use; its slot is given back", err,
+             kernel::R32(0x68CC84), kernel::R32(0x68CC94));
+    const uint32_t eax = ctx.eax, ecx = ctx.ecx, edx = ctx.edx;
+    X86_PUSH32(line);
+    X86_PUSH32(0x772C1u);  // as the call there
+    sub_00079090(ctx, base);
+    ctx.esp += 4;  // cdecl
+    ctx.eax = eax, ctx.ecx = ecx, ctx.edx = edx;
+    for (uint32_t o = 0x10; o <= 0x30; o += 4) kernel::W32(player + o, 0);
+    kernel::W32(player + 0xD4, 0xFFFFFFFFu);
+    kernel::W32(player + 0xD8, 0xFFFFFFFFu);
+    kernel::W32(player + 0xDC, 0xFFFFFFFFu);
+    kernel::W32(player + 0x70, 0);
+    kernel::W32(player + 0x74, 0);
+    kernel::W32(player + 0x78, 0);
+    kernel::W32(player + 0xE0, 0);
+}

@@ -145,6 +145,8 @@ On top of the toolchain it is built on:
   parked holding it, and the main loop froze on that lock a few minutes into a mission.
 - Dialogue plays to the end: the game's dialogue player stops a line when the stream has not reported "playing" for 40
   frames, and the port's streams never reported it, so every line was cut after 1.4 s (0.7 s at 60 fps).
+- A voice line that cannot get a sound stream (the game has 12) gives its slot back: the game's own failure path kept
+  the slot pointing at the previous line's freed file object, and the next frame called into it (a crash in missions).
 - File reads the game asks for in the background are done in the background (they stalled the main loop on the SD card).
 - The movies' YUV to RGB conversion (CRI Sofdec, MMX) runs natively, bit-exact and about 3.6 times faster.
 - deko3d clears only the colour channels the game asks for: the game clears the alpha alone after the whole scene
