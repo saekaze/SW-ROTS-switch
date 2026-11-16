@@ -122,7 +122,9 @@ toml::table Table() {
                   {"reuse_constants", gpu::g_reuse_constants.load()},
                   {"cpu_mhz", int64_t(host::ClockWanted("cpu"))},
                   {"gpu_mhz", int64_t(host::ClockWanted("gpu"))},
-                  {"mem_mhz", int64_t(host::ClockWanted("mem"))}};
+                  {"mem_mhz", int64_t(host::ClockWanted("mem"))},
+                  {"movie_boost_mhz", int64_t(host::MovieBoost())},
+                  {"shadows", gpu::g_stencil_shadows.load()}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));
@@ -136,7 +138,7 @@ toml::table Table() {
 // the Switch starts at the console's own pace: 30 frames a second, vsync on, the frame at the screen's height
 Settings DefaultSettings() {
     Settings s;
-    s.render_percent = 100;
+    s.render_percent = 75;  // ROTS: 540p handheld, room for 60 fps at stock GPU clocks
     s.fps_cap = 60;
     s.vsync = true;
     s.xbox_720p = false;  // stock 480 Xbox until 720p is tried on this title
@@ -190,6 +192,8 @@ void Load() {
     gpu::g_reuse_constants = t["reuse_constants"].value_or(gpu::g_reuse_constants.load());
     for (const char* c : {"cpu", "gpu", "mem"})
         host::SetClockWanted(c, t[std::string(c) + "_mhz"].value_or(host::ClockWanted(c)));
+    gpu::g_stencil_shadows = t["shadows"].value_or(gpu::g_stencil_shadows.load());
+    host::SetMovieBoost(std::min<uint32_t>(t["movie_boost_mhz"].value_or(host::MovieBoost()), 1785));
     for (const Option& o : kGame.options) {
         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);
         else *o.value = t[o.key].value_or(*o.value);

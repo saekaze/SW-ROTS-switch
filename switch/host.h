@@ -29,6 +29,9 @@ bool Smaa();
 // cpu_mhz, gpu_mhz, mem_mhz from the settings (clocks.cpp): name is "cpu", "gpu" or "mem", 0 the system's clock
 void SetClockWanted(const char* name, uint32_t mhz);
 uint32_t ClockWanted(const char* name);
+// ROTS: the CPU rate while a movie plays, MHz (0: off)
+void SetMovieBoost(uint32_t mhz);
+uint32_t MovieBoost();
 void ApplyClocks();    // at start and after each docked/handheld change
 void RestoreClocks();  // the system's clocks back
 void WatchClocks();    // from the main loop: the asked clocks set again if something changed them

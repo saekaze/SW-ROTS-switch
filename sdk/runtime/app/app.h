@@ -97,6 +97,8 @@ struct GameInfo {
     // ROTS: the languages the disc has ("en,es,it"); with language "auto" any other system language plays in
     // English (a PAL Revenge of the Sith on a Japanese Switch looped on its legal screen). Null: all of them
     const char* languages = nullptr;
+    // ROTS: changes a small game file as it is first read (same length): game config switches
+    void (*patch_file)(const std::string& xbox_path, std::vector<uint8_t>& bytes) = nullptr;
 };
 extern const GameInfo kGame;
 

@@ -10,6 +10,7 @@
 #include "app/app.h"
 #include "core/log.h"
 #include "gpu/backend.h"
+#include "gpu/shaders.h"
 #include "gpu/texture.h"
 #include "harness.h"
 #include "kernel/kernel.h"
@@ -32,6 +33,9 @@ public:
     }
     void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices) override {
         draws_++;
+        // ROTS: NO_SHADOWS=1 leaves the stencil shadow passes out, as shadows = false on the Switch
+        static const bool no_shadows = harness::Env("NO_SHADOWS") != 0;
+        if (no_shadows && IsStencilShadowDraw(s)) return;
         if (drawing_) reference::Draw(s, prim, start, count, indices);
         if (list_) List(s, prim, start, count);
     }
@@ -66,6 +70,9 @@ public:
         harness::g_frames = frames_ + 1;
         if (++frames_ % 60 == 0) LOGI("renderer: frame %llu, %llu draws, %llu empty frames", frames_, draws_, empty_);
         if (cap && frames_ % cap == 0) list_ = std::fopen(File("cap/draws_%05llu.txt", frames_).c_str(), "w");
+        // capnow in the run folder: the next frame's draws listed in draws_now.txt, then capnow is removed
+        std::string capnow = (app::ExeDir() / "capnow").string();
+        if (!list_ && std::remove(capnow.c_str()) == 0) list_ = std::fopen((app::ExeDir() / "draws_now.txt").string().c_str(), "w");
     }
     void Sync(uint32_t, uint32_t) override {}
     void SyncLate(uint32_t) override {}
@@ -82,10 +89,31 @@ private:
     // one draw's state, textures, transforms, declaration and first vertex
     void List(const State& s, uint32_t prim, uint32_t start, uint32_t count) {
         FILE* f = list_;
+        // each vertex program once: its HLSL and the constants it may read, in vs_<handle>.txt
+        if (s.vs && !s.vs->program.empty()) {
+            std::string name = File("vs_%08llX.txt", s.vs_handle);
+            if (FILE* g = std::fopen(name.c_str(), "wx")) {
+                std::fprintf(g, "%s\n", VertexProgramHlsl(s.vs->program, 0xFFFF).c_str());
+                for (int r = 0; r < 192; r++) {
+                    const auto& c = s.vsc[size_t(r)];
+                    if (c[0] != 0 || c[1] != 0 || c[2] != 0 || c[3] != 0)
+                        std::fprintf(g, "c%d (hw %d): %g %g %g %g\n", r - 96, r, c[0], c[1], c[2], c[3]);
+                }
+                std::fclose(g);
+            }
+        }
         std::fprintf(f, "DRAW prim=%u n=%u vs=%X ps=%X rt=%08X tex0=%08X light=%u blend=%u %X %X cw=%X at=%u z=%u\n", prim, count,
                      s.vs_handle, s.ps ? s.ps->handle : 0, s.rt.data, s.textures[0], s.rs[kRsLighting], s.simple[kMBlendEnable >> 2],
                      s.simple[kMSrcBlend >> 2], s.simple[kMDestBlend >> 2], s.simple[kMColorWriteEnable >> 2],
                      s.simple[kMAlphaTestEnable >> 2], s.rs[kRsZEnable]);
+        std::fprintf(f, "  surfaces rt %08X fmt %X size %08X  zs %08X fmt %X size %08X\n", s.rt.data, s.rt.format, s.rt.size,
+                     s.zs.data, s.zs.format, s.zs.size);
+        if (s.rs[kRsStencilEnable] || s.rs[kRsZEnable])
+            std::fprintf(f, "  zs %08X stencil %u func %X ref %X mask %X wmask %X fail %X zfail %X pass %X zfunc %X zwrite %X cull %X\n",
+                         s.zs.data, s.rs[kRsStencilEnable], s.simple[kMStencilFunc >> 2], s.simple[kMStencilRef >> 2],
+                         s.simple[kMStencilMask >> 2], s.simple[kMStencilWriteMask >> 2], s.rs[kRsStencilFail],
+                         s.simple[kMStencilZFail >> 2], s.simple[kMStencilPass >> 2], s.simple[kMZFunc >> 2],
+                         s.simple[kMZWriteEnable >> 2], s.rs[kRsCullMode]);
         const auto& t0 = s.tss[0];
         TextureDesc d;
         if (s.textures[0] && Describe(s.textures[0], d))

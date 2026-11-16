@@ -1,5 +1,6 @@
 #include <functional>
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -18,6 +19,7 @@
 #endif
 
 #include "kernel/disc.h"
+#include "app/app.h"
 #include "kernel/kernel.h"
 #include "kernel/exports.h"
 
@@ -128,6 +130,8 @@ fs::path MatchCase(const fs::path& dir, const std::vector<std::string>& parts) {
     }
     return cur;
 }
+
+std::atomic<uint64_t> g_movie_read_ms{0};
 
 struct File;
 void ForgetLazy(File* f);
@@ -665,6 +669,7 @@ static FileBytes SmallFile(File& f) {
         got = std::fread(bytes->data(), 1, size_t(size), f.fp);
     }
     if (got != size) return nullptr;
+    if (app::kGame.patch_file) app::kGame.patch_file(x, *bytes);
     used += size;
     LOGI("files: %s kept in memory (%llu KB, %llu KB of small files)", x.c_str(), (unsigned long long)(size >> 10),
          (unsigned long long)(used >> 10));
@@ -722,6 +727,15 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
         if (done < chunk) break;
     }
     f->pos = pos + n;
+    // ROTS: a movie being streamed (CRI Sofdec .sfd, XMV, Bink): the Switch host raises the CPU clock while it plays
+    if (!write && f->xbox.size() > 4) {
+        std::string ext = f->xbox.substr(f->xbox.size() - 4);
+        for (char& c : ext) c = char(std::tolower(uint8_t(c)));
+        if (ext == ".sfd" || ext == ".xmv" || ext == ".bik")
+            g_movie_read_ms.store(uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                               std::chrono::steady_clock::now().time_since_epoch())
+                                               .count()));
+    }
     if (logx::kVerbose) {
         // STREET: every transfer with a hash of its bytes, to compare a run with another platform's line by line
         uint32_t hash = 2166136261u;
@@ -1023,5 +1037,8 @@ KERNEL_EXPORT(215, NtQuerySymbolicLinkObject, 3) {
     W16(str, uint16_t(t.size()));
     return kSuccess;
 }
+
+// ROTS: when a movie file was last read, steady clock ms (0: never)
+uint64_t MovieReadMs() { return g_movie_read_ms.load(); }
 
 }  // namespace kernel

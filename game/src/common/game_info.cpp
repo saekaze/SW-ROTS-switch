@@ -1,3 +1,7 @@
+#include <algorithm>
+#include <cctype>
+#include <string>
+#include <vector>
 #include "app/app.h"
 #include "core/input.h"
 #include "gpu/backend.h"
@@ -12,6 +16,16 @@ uint32_t g_button_map = 0;  // 0: as buttons_by_name; else 8 nibbles, each a Swi
 bool g_invert_x = false, g_invert_y = false, g_fps_counter = false;
 uint32_t g_stick_response = 0;  // left stick left/right: 0 linear, 1 gentle, 2 gentler (Mark, 2026-11-13: Sonic felt touchy)
 void ScriptPad(int port, input::Pad& pad);  // pad_script.cpp
+// ROTS: the game's own frame cap (fpsLimit in d:\vars_xbox.cfg, 30 on the disc): 60 or 30
+uint32_t g_game_fps = 60;
+void PatchFile(const std::string& path, std::vector<uint8_t>& b) {
+    std::string lower = path;
+    for (char& c : lower) c = char(std::tolower(uint8_t(c)));
+    if (lower.size() < 13 || lower.compare(lower.size() - 13, 13, "vars_xbox.cfg") != 0) return;
+    const std::string from = "fpsLimit=30", to = g_game_fps >= 60 ? "fpsLimit=60" : "fpsLimit=30";
+    auto it = std::search(b.begin(), b.end(), from.begin(), from.end());
+    if (it != b.end()) std::copy(to.begin(), to.end(), it);
+}
 }
 
 // what the runtime asks of the game; strings must be set, hooks may stay null
@@ -30,7 +44,8 @@ const app::GameInfo app::kGame = {
                 {"fps_counter", &sheroes::g_fps_counter, nullptr},
                 {"stick_response", nullptr, &sheroes::g_stick_response},
                 {"music_volume", nullptr, &xdk::g_music_pct},
-                {"effects_volume", nullptr, &xdk::g_effects_pct}},  // game settings kept in the settings file
+                {"effects_volume", nullptr, &xdk::g_effects_pct},
+                {"game_fps", nullptr, &sheroes::g_game_fps}},  // game settings kept in the settings file
     .load = nullptr,                      // reads more from the settings file's toml::table
     .save = nullptr,                      // writes more into it
     .init = nullptr,                      // after the settings load, before the window and boot
@@ -41,4 +56,5 @@ const app::GameInfo app::kGame = {
     .pad = sheroes::ScriptPad,          // scripted test presses (pad_script.cpp), none unless asked for
     .rumble = nullptr,                    // changes a rumble before it is set
     .languages = "en,es,it",              // the PAL disc (Europe, En/Es/It)
+    .patch_file = sheroes::PatchFile,     // game_fps: the game's own frame cap
 };

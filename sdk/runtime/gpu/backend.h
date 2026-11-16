@@ -78,6 +78,18 @@ inline std::atomic<uint32_t> g_render_spin_us{0};
 // thread reads the vertices from the title's memory, which a lock of the buffer waits for (render_thread.cpp). The
 // Switch reads draw_copy from its settings; elsewhere SHEROES_DRAW_COPY=0/1.
 inline std::atomic<bool> g_draw_copy{true};
+
+// ROTS: shadows = false leaves out stencil shadow passes: the volumes (colour writes off, the stencil counting depth
+// fails or passes up and down) and the darkening drawn where the stencil is not equal (stencil not written)
+inline std::atomic<bool> g_stencil_shadows{true};
+inline bool IsStencilShadowDraw(const State& s) {
+    if (!s.rs[kRsStencilEnable]) return false;
+    auto simple = [&](uint32_t m) { return s.simple[m >> 2]; };
+    auto counts = [](uint32_t op) { return op == 0x1E02 || op == 0x1E03 || op == 0x8507 || op == 0x8508; };
+    bool volume = simple(kMColorWriteEnable) == 0 && (counts(simple(kMStencilZFail)) || counts(simple(kMStencilPass)));
+    bool shade = simple(kMStencilFunc) == 0x205 && (simple(kMStencilWriteMask) & 0xFF) == 0;
+    return volume || shade;
+}
 inline std::atomic<uint64_t> g_perf_copied{0}, g_perf_copied_bytes{0};
 
 // STREET (performance): a draw whose constants equal the previous draw's in the same upload ring reuses that upload

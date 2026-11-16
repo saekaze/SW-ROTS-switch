@@ -3,8 +3,10 @@
 # The Switch has no display_mode, width or height: the resolution is the screen's
 # (1280x720 handheld, 1920x1080 docked).
 
-# Internal resolution in % of the screen's height (100 = native). Lower it (75, say) if the game is slow.
-render_percent = 100
+# Internal resolution in % of the screen's height (100 = native: 720p handheld, 1.5x the Xbox's 480 lines).
+# 75 (default) is 540p handheld, already above the Xbox, and leaves the GPU room for 60 fps at stock clocks.
+# Docked, or with a GPU overclock, try 100. 67 is exactly the Xbox's resolution in handheld.
+render_percent = 75
 
 # Frame rate cap (0 = none). 60 by default.
 # The log writes the real frame rate every 10 s ("perf:" lines).
@@ -100,3 +102,16 @@ fps_counter = false
 # Volumes in %: music (stereo sounds) and effects (mono sounds: effects and voices).
 music_volume = 100
 effects_volume = 100
+
+# ROTS: the game's own frame cap. 60 (default) or 30 (as on the Xbox). The game times its gameplay by the clock,
+# so 60 should only be smoother; if anything plays too fast, set 30.
+game_fps = 60
+
+# CPU clock while a movie (cutscene video) plays, in MHz; 0 = off. The movies are decoded by the game's own code,
+# which at the stock 1020 MHz runs a little slower than the video, so they drift behind their sound. 1785 (default)
+# plays them at full speed; the clock goes back as soon as the movie ends. The log shows "clocks: movie playing".
+movie_boost_mhz = 1785
+
+# Character shadows (the game's stencil shadows). true (default) as on the Xbox; false leaves them out. If the
+# picture goes dark when you walk away from where a level starts, set false and report whether that cured it.
+shadows = true

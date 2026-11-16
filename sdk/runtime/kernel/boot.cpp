@@ -204,7 +204,7 @@ bool StartImage() {
         uint32_t page = mem::AllocContiguous(0x1000, 0, 0xFFFFFFFF, 0x1000);
         lf.read(static_cast<char*>(HostPtr(page)), 0x1000);
         lf.close();
-        std::remove(g_launch_file.c_str());
+        if (!std::getenv("XBE_KEEP_LAUNCH")) std::remove(g_launch_file.c_str());  // kept: a test boots past the title again
         W32(g_launch_data_page_va, page);
         LOGI("boot: launch data from the previous run, type %u", R32(page));
         LoadPersistedDisplay();

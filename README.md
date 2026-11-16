@@ -18,11 +18,12 @@ Switch at 60 fps on stock clocks.
 | Code translation | Done: 28,207 functions (XDK 5849) |
 | Boot, legal screens, title screen | Works |
 | Menus (main menu, story missions, pause) | Works |
-| Mission 1 (Rescue over Coruscant) | Loads and plays |
+| Mission 1 (Rescue over Coruscant) | Plays (13 minutes on PC without a crash) |
 | Level changes (the game reboots itself between front end and missions) | Works, done in-process (no restart of the app) |
 | Sound (DirectSound at the API level) | Works |
-| Movies (CRI Sofdec FMV: intro, crawl, cutscenes) | Work |
-| Switch build | Runs on the console (deko3d): about 29 fps in the intro movies at stock clocks |
+| Movies (CRI Sofdec FMV: intro, crawl, cutscenes) | Work (the CPU is raised to 1785 MHz while one plays, so they keep up with their sound) |
+| Switch build | Runs on the console (deko3d), 60 fps cap |
+| Known issue | The picture may go darker in mission 1 once you walk away from the start (being looked at) |
 | Missions past the first | Untested |
 
 Tested so far on PC (Linux, headless): title, Start, the self-reboot, crawl, intro, mission 1 gameplay, pause,
@@ -64,13 +65,15 @@ dueling), so the build needs no artwork from anywhere. Want another picture? Put
 
 ### Settings
 
-`sdmc:/switch/rots/rots-settings.toml` (comments inside): render resolution, frame cap, SMAA, anisotropic
-filtering, button layout, language, CPU boost and more. **+ and -** together open the port menu in game.
+`sdmc:/switch/rots/rots-settings.toml` (comments inside): render resolution, frame cap, the game's own frame cap
+(`game_fps`), SMAA, anisotropic filtering, button layout, language, CPU boost, the movie CPU boost
+(`movie_boost_mhz`), character shadows (`shadows`) and more. **+ and -** together open the port menu in game.
 
 ### Frame rate
 
-The game itself caps at 30 fps (`fpsLimit=30` in the game's `vars_xbox.cfg`). For 60 fps, edit
-`sdmc:/switch/rots/game/vars_xbox.cfg` and set `fpsLimit=60` (experimental: report how it plays).
+The game itself caps at 30 fps (`fpsLimit=30` in its `vars_xbox.cfg`). The port raises that to 60 as the file is
+read (`game_fps = 60` in the settings; set 30 to play as on the Xbox). Your disc files are not changed. The internal
+resolution defaults to 75 % of the screen (540p handheld) so the GPU keeps up at stock clocks; docked, try 100.
 
 ## Reporting problems
 
@@ -117,6 +120,8 @@ On top of the toolchain it is built on:
 - `NtUserIoApcDispatcher` (ReadFileEx completions: every pack file read) and `FileInternalInformation` (the level
   sub-packs: without it the game showed its dirty-disc screen).
 - `D3DDevice_DrawIndexedVerticesUP` (menus, HUD) and `IDirectSoundBuffer_Pause` named by hand and replaced;
+  four DirectSound 3D calls on streams (cone and distance parameters) answered by the port: the library's own code
+  wrote into objects the port's streams do not have and crashed a few minutes into a mission;
   `D3DDevice_Release` returning 0 (the game releases the device in a loop).
 - The Switch build without a Vulkan driver (deko3d only), RotS paths and title checks.
 

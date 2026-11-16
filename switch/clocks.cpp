@@ -4,10 +4,12 @@
 #include <switch.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 #include "core/log.h"
 #include "host.h"
+#include "kernel/kernel.h"
 
 namespace {
 
@@ -27,6 +29,18 @@ Domain g_domains[3] = {
 };
 
 bool UseClkrst() { return hosversionAtLeast(8, 0, 0); }
+
+// ROTS: movie_boost, the CPU rate while a movie streams (0: off). The CRI Sofdec decoder is the title's own x86 code,
+// translated: at the stock 1020 MHz it decodes about 29 frames a second of the 29.97 the movies run at, so they fell
+// further behind their sound the longer they ran (Switch, 2026-11-16)
+uint32_t g_movie_boost_mhz = 1785;
+bool g_movie_boosting = false;
+
+// what a domain is held at now: its asked rate, or the movie boost's when that is higher
+uint32_t Want(const Domain& d) {
+    if (g_movie_boosting && &d == &g_domains[0]) return std::max(d.want_mhz, g_movie_boost_mhz);
+    return d.want_mhz;
+}
 
 uint32_t GetHz(const Domain& d) {
     uint32_t hz = 0;
@@ -79,6 +93,9 @@ void SetClockWanted(const char* name, uint32_t mhz) {
         if (!std::strcmp(d.name, name)) d.want_mhz = mhz;
 }
 
+void SetMovieBoost(uint32_t mhz) { g_movie_boost_mhz = mhz; }
+uint32_t MovieBoost() { return g_movie_boost_mhz; }
+
 uint32_t ClockWanted(const char* name) {
     for (const Domain& d : g_domains)
         if (!std::strcmp(d.name, name)) return d.want_mhz;
@@ -116,6 +133,19 @@ void WatchClocks() {
         failed = !Open();
         if (failed) return;
     }
+    // a movie file read in the last 3 s: one is playing (Sofdec reads its stream about every 0.6 s)
+    uint64_t movie = kernel::MovieReadMs(), now_ms = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                       std::chrono::steady_clock::now().time_since_epoch())
+                                                       .count());
+    bool boost = g_movie_boost_mhz && movie && now_ms - movie < 3000;
+    if (boost != g_movie_boosting) {
+        Domain& cpu = g_domains[0];
+        g_movie_boosting = boost;
+        if (boost && !cpu.original_hz) cpu.original_hz = GetHz(cpu);
+        uint32_t hz = Want(cpu) ? std::min(Want(cpu), cpu.max_mhz) * 1000000u : cpu.original_hz;
+        if (hz) SetHz(cpu, hz);
+        LOGR("clocks: movie %s, cpu %u MHz", boost ? "playing" : "over", GetHz(cpu) / 1000000u);
+    }
     uint32_t mhz[3];
     for (int i = 0; i < 3; i++) mhz[i] = GetHz(g_domains[i]) / 1000000u;
     if (std::memcmp(mhz, shown, sizeof(mhz))) {
@@ -123,8 +153,8 @@ void WatchClocks() {
         LOGR("clocks: now cpu %u, gpu %u, mem %u MHz", mhz[0], mhz[1], mhz[2]);
     }
     for (Domain& d : g_domains) {
-        if (!d.want_mhz) continue;
-        uint32_t want = std::min(d.want_mhz, d.max_mhz), is = GetHz(d) / 1000000u;
+        if (!Want(d)) continue;
+        uint32_t want = std::min(Want(d), d.max_mhz), is = GetHz(d) / 1000000u;
         if (is == want) continue;
         ++resets;
         if (resets <= 10 || resets % 60 == 0)

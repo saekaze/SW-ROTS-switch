@@ -214,6 +214,7 @@ public:
     bool Init(uint32_t width, uint32_t height) override { return inner_->Init(width, height); }
 
     void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices) override {
+        if (!g_stencil_shadows && IsStencilShadowDraw(s)) return;  // ROTS: shadows = false
         const Stamp t = StampNow();
         perf_draws_++;
         SendState(s);
