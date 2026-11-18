@@ -145,10 +145,13 @@ On top of the toolchain it is built on:
   parked holding it, and the main loop froze on that lock a few minutes into a mission.
 - Dialogue plays to the end: the game's dialogue player stops a line when the stream has not reported "playing" for 40
   frames, and the port's streams never reported it, so every line was cut after 1.4 s (0.7 s at 60 fps).
+- A voice line's sound file is never freed while a line still plays it (the game's release thread could free it under
+  the main thread: a freeze or a crash in missions).
 - A voice line that cannot get a sound stream (the game has 12) gives its slot back: the game's own failure path kept
   the slot pointing at the previous line's freed file object, and the next frame called into it (a crash in missions).
 - File reads the game asks for in the background are done in the background (they stalled the main loop on the SD card).
-- The movies' YUV to RGB conversion (CRI Sofdec, MMX) runs natively, bit-exact and about 3.6 times faster.
+- The movies' YUV to RGB conversion (CRI Sofdec, MMX) and inverse DCT (SSE) run natively with SIMD, bit-exact
+  (checked frame by frame against the game's own code); the conversion is about 9 times faster.
 - Dynamic resolution on deko3d: when a scene needs more GPU time than a frame has (the heavier cutscenes), the
   internal resolution steps down to as little as 70% of `render_percent` and back up when there is room
   (`dynamic_resolution` in the settings file).

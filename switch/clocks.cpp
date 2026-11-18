@@ -53,8 +53,15 @@ bool SysClkOpen() {
     u8 has = 0;
     Result rc = hosversionAtLeast(12, 0, 0) ? tipcDispatchInOut(smGetServiceSessionTipc(), 65100, name, has)
                                             : serviceDispatchInOut(smGetServiceSession(), 65100, name, has);
-    if (R_FAILED(rc) || !has) return false;
-    if (R_FAILED(smGetService(&g_sysclk, "sys:clk"))) return false;
+    if (R_FAILED(rc) || !has) {
+        if (R_FAILED(rc)) LOGR("clocks: could not ask sm for sys-clk (0x%X)", rc);
+        else LOGR("clocks: sys-clk is not running; something else sets the CPU back (the boost is set again each second)");
+        return false;
+    }
+    if (R_FAILED(rc = smGetService(&g_sysclk, "sys:clk"))) {
+        LOGR("clocks: sys-clk found but could not be opened (0x%X)", rc);
+        return false;
+    }
     u32 api = 0;
     if (R_FAILED(serviceDispatchOut(&g_sysclk, 0, api)) || api != 4) {
         LOGR("clocks: sys-clk found, API %u (the override needs 4); not asked", api);
